@@ -1,0 +1,158 @@
+# Environment and API Keys
+.env
+.env.local
+.env.production
+.env.development
+config.json
+config_*.json
+!config.template.json
+
+# Game Files
+pokemon-red.sav
+pokemon-red.gb
+*.gb
+*.gba
+*.sav
+*.ss*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PYTHONPATH
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+.cache/
+
+# React / Frontend Build
+dashboard/frontend/build/
+dashboard/frontend/dist/
+dashboard/frontend/.env.local
+dashboard/frontend/.env.development.local
+dashboard/frontend/.env.test.local
+dashboard/frontend/.env.production.local
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# AI Generated Files
+thinking_history.txt
+latest_chat.md
+notepad.txt
+data/screenshots/
+data/videos/
+data/knowledge_graph.json
+
+# Temporary Files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Package Managers
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/

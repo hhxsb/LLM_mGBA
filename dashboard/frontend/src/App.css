@@ -1,0 +1,227 @@
+/* App.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar for webkit browsers */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Chat message animations */
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-message {
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+/* Pokemon-themed button styles */
+.btn-pokemon {
+  @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-sm;
+}
+
+.btn-pokemon-blue {
+  @apply btn-pokemon bg-pokemon-blue text-white hover:bg-blue-600 hover:shadow-md;
+}
+
+.btn-pokemon-yellow {
+  @apply btn-pokemon bg-pokemon-yellow text-gray-800 hover:bg-yellow-400 hover:shadow-md;
+}
+
+.btn-pokemon-green {
+  @apply btn-pokemon bg-pokemon-green text-white hover:bg-green-600 hover:shadow-md;
+}
+
+/* Status indicator animations */
+.status-indicator {
+  animation: pulse 2s infinite;
+}
+
+/* Connection status styles */
+.connection-indicator {
+  position: relative;
+}
+
+.connection-indicator::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  animation: ripple 1.5s infinite;
+}
+
+@keyframes ripple {
+  0% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2);
+  }
+}
+
+/* Chat bubble styles */
+.chat-bubble {
+  position: relative;
+  word-wrap: break-word;
+}
+
+.chat-bubble::before {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* GIF message bubble arrow */
+.gif-bubble::before {
+  border-left: 8px solid transparent;
+  border-right: 8px solid #fef3c7;
+  border-top: 8px solid #fef3c7;
+  left: 20px;
+  top: -8px;
+}
+
+/* AI response bubble arrow */
+.ai-bubble::before {
+  border-left: 8px solid #dbeafe;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #dbeafe;
+  right: 20px;
+  top: -8px;
+}
+
+/* Action bubble arrow */
+.action-bubble::before {
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #dcfce7;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+}
+
+/* Loading animations */
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+}
+
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+  0%, 20% {
+    content: '.';
+  }
+  40% {
+    content: '..';
+  }
+  60%, 100% {
+    content: '...';
+  }
+}
+
+/* Highlight animations for new messages */
+.message-highlight {
+  animation: highlight 2s ease-out;
+}
+
+@keyframes highlight {
+  0% {
+    background-color: rgba(59, 130, 246, 0.1);
+    transform: scale(1.02);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
+/* Pokemon-themed gradients */
+.gradient-pokemon-blue {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+.gradient-pokemon-yellow {
+  background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 100%);
+}
+
+.gradient-pokemon-green {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+/* Responsive design helpers */
+@media (max-width: 768px) {
+  .chat-message {
+    max-width: 90%;
+  }
+  
+  .grid-responsive {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .chat-message,
+  .message-highlight,
+  .loading-dots::after,
+  .status-indicator,
+  .connection-indicator::before {
+    animation: none;
+  }
+}
+
+/* Focus styles for better accessibility */
+button:focus,
+select:focus,
+input:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .bg-gray-50 {
+    background-color: #ffffff;
+  }
+  
+  .bg-gray-100 {
+    background-color: #f8f9fa;
+  }
+  
+  .text-gray-500 {
+    color: #000000;
+  }
+}
