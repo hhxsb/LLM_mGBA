@@ -16,6 +16,13 @@ const App: React.FC = () => {
     clearChat 
   } = useWebSocket();
 
+  // Debug: Log messages prop being passed to ChatInterface
+  console.log('🏠 App component - messages prop:', {
+    messageCount: messages.length,
+    messageTypes: messages.map(m => m?.type),
+    messageIds: messages.map(m => m?.id)
+  });
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}

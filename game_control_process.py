@@ -21,6 +21,7 @@ import websockets
 sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 
 from games.pokemon_red.controller import PokemonRedController
+from core.logging_config import configure_logging, get_logger, get_timeline_logger
 import PIL.Image
 
 
@@ -223,8 +224,10 @@ class GameControlProcess(PokemonRedController):
             response_text = decision.get('text', '')
             reasoning = None  # Could extract from response if available
             
-            # Send AI response to dashboard
+            # TIMELINE EVENT 7: T+6.0s - Game Control sends AI response → dashboard  
             if response_text:
+                timeline_logger = get_timeline_logger("game_control")
+                timeline_logger.log_event(7, f"{processing_time + 6.0:.1f}s", "Game Control sends AI response → dashboard")
                 self._send_dashboard_message_threaded('response', response_text, reasoning, processing_time)
             
             # Extract button information
@@ -237,8 +240,9 @@ class GameControlProcess(PokemonRedController):
             for code in button_codes:
                 button_names.append(button_code_to_name.get(code, f'BUTTON_{code}'))
             
-            # Send actions to dashboard
+            # TIMELINE EVENT 8: T+6.2s - Game Control sends button actions → dashboard
             if button_codes:
+                timeline_logger.log_event(8, f"{processing_time + 6.2:.1f}s", "Game Control sends button actions → dashboard")
                 self._send_dashboard_message_threaded('action', 
                     [str(code) for code in button_codes], 
                     [float(d) for d in button_durations], 
@@ -301,7 +305,10 @@ class GameControlProcess(PokemonRedController):
     def _make_decision_from_video_process(self):
         """Make AI decision using GIF from external video process."""
         try:
-            # Request GIF from video process
+            # TIMELINE EVENT 1: T+0.0s - Game Control requests GIF from Video Capture
+            cycle_start_time = time.time()
+            timeline_logger = get_timeline_logger("game_control")
+            timeline_logger.log_event(1, "0.0s", "Game Control requests GIF from Video Capture (TCP socket)")
             self.logger.debug("📹 Requesting GIF from video process...")
             gif_response = self.video_client.request_gif()
             
@@ -320,6 +327,10 @@ class GameControlProcess(PokemonRedController):
             if not gif_data:
                 self.logger.error("No GIF data received from video process")
                 return None
+            
+            # TIMELINE EVENT 4: T+0.3s - Game Control receives GIF data 
+            elapsed_time = time.time() - cycle_start_time
+            timeline_logger.log_event(4, f"{elapsed_time:.1f}s", "Game Control receives GIF data → processes with LLM")
             
             # Convert GIF data to PIL Image
             gif_image = self.video_client.gif_data_to_image(gif_data)
@@ -355,9 +366,19 @@ class GameControlProcess(PokemonRedController):
                 'processed_at': time.time()
             }
             
-            # Make decision using the GIF
+            # TIMELINE EVENT 5: T+2-6s - LLM processing time
+            llm_start_time = time.time()
+            elapsed_time = llm_start_time - cycle_start_time
+            timeline_logger.log_event(5, f"{elapsed_time:.1f}s", "LLM processing begins (varies by complexity)")
             self.logger.debug("🧠 Making AI decision from received GIF...")
+            
             decision = self._make_decision_from_processed_video(processed_video)
+            
+            # Log LLM completion
+            llm_end_time = time.time()
+            llm_duration = llm_end_time - llm_start_time
+            total_elapsed = llm_end_time - cycle_start_time
+            timeline_logger.log_event(6, f"{total_elapsed:.1f}s", f"LLM processing complete (took {llm_duration:.1f}s)")
             
             if decision:
                 button_count = len(decision.get('buttons', []))
@@ -396,6 +417,10 @@ class GameControlProcess(PokemonRedController):
             
             # Calculate action duration
             action_duration_seconds = self._calculate_action_duration(button_codes, button_durations)
+            
+            # TIMELINE EVENT 10: T+6.4s - Actions executed in emulator → cycle repeats after cooldown
+            timeline_logger = get_timeline_logger("game_control")
+            timeline_logger.log_event(10, "6.4s", "Actions executed in emulator → cycle repeats after cooldown")
             
             # Send the decision
             self._send_button_decision(client_socket, decision)
@@ -562,7 +587,7 @@ class GameControlProcess(PokemonRedController):
             try:
                 self.logger.info(f"🔗 Connecting to dashboard WebSocket: {dashboard_ws_url} (attempt {attempt + 1})")
                 self.dashboard_ws = await websockets.connect(dashboard_ws_url)
-                self.logger.success("✅ Connected to dashboard WebSocket")
+                self.logger.success(f"✅ Connected to dashboard WebSocket, state: {self.dashboard_ws.state}")
                 
                 # Start background task to maintain connection
                 asyncio.create_task(self._dashboard_ws_handler())
@@ -678,8 +703,13 @@ def main():
     parser = argparse.ArgumentParser(description='Game Control Process for Pokemon AI')
     parser.add_argument('--config', default='config_emulator.json', 
                        help='Path to configuration file')
+    parser.add_argument('--debug', action='store_true', 
+                       help='Enable debug logging')
     
     args = parser.parse_args()
+    
+    # Configure logging for game control process
+    configure_logging(debug=args.debug, process_name="game_control")
     
     # Load configuration
     try:

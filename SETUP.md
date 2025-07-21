@@ -291,21 +291,35 @@ python test_complete_system.py
 pip install opencv-python
 ```
 
-#### 2. API Key Issues
+#### 2. Port Already in Use
+**Error**: `[Errno 48] error while attempting to bind on address ('127.0.0.1', 3000): address already in use`
+**Solution**: 
+```bash
+# Quick fix - run the cleanup script
+./kill_dashboard.sh
+
+# Or manually check what's using the port
+lsof -i :3000
+
+# Kill the process using the port (replace PID with actual process ID)
+kill PID_NUMBER
+```
+
+#### 3. API Key Issues
 **Error**: API authentication failures
 **Solution**:
 - Verify API key is correct in `config_emulator.json`
 - Check Gemini API quota and billing
 - Test API key with simple request
 
-#### 3. Port Conflicts
+#### 4. Port Conflicts
 **Error**: `Address already in use`
 **Solution**:
 - Dashboard automatically handles port conflicts
 - Manually kill processes on ports 3000, 5173, 8888, 8889
 - Use different ports in configuration
 
-#### 4. mGBA Connection
+#### 5. mGBA Connection
 **Error**: `Cannot connect to emulator`
 **Solution**:
 - Ensure mGBA is running with Pokemon Red loaded

@@ -5,6 +5,8 @@ import asyncio
 import json
 import logging
 import signal
+import socket
+import subprocess
 import sys
 import os
 from pathlib import Path
@@ -20,21 +22,33 @@ from process_manager import ProcessManager
 from websocket_handler import websocket_handler, connection_manager
 from api import routes
 from models import DashboardConfig
+from core.logging_config import configure_logging, get_logger, PokemonAILogger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Note: Logging will be configured in main() based on --debug flag
+logger = None  # Will be set after configuration
 
 class DashboardApp:
     """Main dashboard application"""
     
-    def __init__(self, config_path: str = "config_emulator.json"):
+    def __init__(self, config_path: str = "config_emulator.json", frontend_only: bool = False, mock_mode: bool = False, debug: bool = False):
         self.config_path = config_path
         self.config = self._load_config()
         self.dashboard_config = DashboardConfig(**self.config.get("dashboard", {}))
+        self.frontend_only = frontend_only
+        self.mock_mode = mock_mode
+        self.debug = debug
+        
+        # Configure logging for dashboard process
+        configure_logging(debug=debug, process_name="dashboard")
+        global logger
+        logger = get_logger("dashboard.main")
+        
+        # Set environment variable for child processes
+        PokemonAILogger.set_debug_env_var()
+        
+        # Task management
+        self.background_tasks = []
+        self.running = True
         
         # Initialize FastAPI app
         self.app = FastAPI(
@@ -43,9 +57,8 @@ class DashboardApp:
             version="1.0.0"
         )
         
-        # Initialize process manager  
-        self.frontend_only = getattr(self, 'frontend_only', False)
-        self.process_manager = ProcessManager(self.config, frontend_only=self.frontend_only)
+        # Initialize process manager (will be updated with actual port in run method)
+        self.process_manager = ProcessManager(self.config, frontend_only=self.frontend_only, mock_mode=self.mock_mode)
         
         # Setup middleware
         self._setup_middleware()
@@ -58,6 +71,71 @@ class DashboardApp:
         
         # Setup signal handlers
         self._setup_signal_handlers()
+    
+    def _is_port_in_use(self, port: int, host: str = "127.0.0.1") -> bool:
+        """Check if a port is already in use"""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                result = sock.connect_ex((host, port))
+                return result == 0
+        except Exception:
+            return False
+    
+    def _find_process_using_port(self, port: int) -> tuple:
+        """Find the process using a specific port using lsof"""
+        try:
+            result = subprocess.run(['lsof', '-i', f':{port}'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 1:  # Skip header
+                    for line in lines[1:]:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            process_name = parts[0]
+                            pid = parts[1]
+                            return pid, process_name, line
+        except Exception:
+            pass
+        return None, None, None
+    
+    def _cleanup_port(self, port: int, host: str = "127.0.0.1") -> bool:
+        """Attempt to clean up a port by killing the process using it"""
+        try:
+            pid, name, cmdline = self._find_process_using_port(port)
+            if pid and name:
+                # Check if it's likely a dashboard process
+                if 'python' in name.lower() or 'dashboard' in name.lower():
+                    logger.info(f"🧹 Found process {name} (PID: {pid}) using port {port}")
+                    
+                    try:
+                        # Try graceful termination first
+                        subprocess.run(['kill', pid], check=True, timeout=5)
+                        import time
+                        time.sleep(2)
+                        
+                        # Check if process is gone
+                        if not self._is_port_in_use(port, host):
+                            logger.info(f"✅ Successfully terminated process {pid}")
+                            return True
+                        else:
+                            # Force kill
+                            subprocess.run(['kill', '-9', pid], check=True, timeout=5)
+                            time.sleep(1)
+                            logger.info(f"🔨 Force killed process {pid}")
+                            return not self._is_port_in_use(port, host)
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not kill process {pid}: {e}")
+                        return False
+                else:
+                    logger.warning(f"⚠️ Port {port} is used by different process: {name} (PID: {pid})")
+                    return False
+        except Exception as e:
+            logger.error(f"❌ Error during port cleanup: {e}")
+            return False
+        return True
         
         logger.info("🚀 AI Pokemon Trainer Dashboard initialized")
     
@@ -174,7 +252,8 @@ class DashboardApp:
                 logger.warning("⚠️ Some processes failed to start - dashboard will still work with reduced functionality")
             
             # Start background tasks
-            asyncio.create_task(self._background_monitoring())
+            monitoring_task = asyncio.create_task(self._background_monitoring())
+            self.background_tasks.append(monitoring_task)
             
             logger.info("✅ Dashboard startup complete")
             
@@ -187,6 +266,20 @@ class DashboardApp:
         logger.info("🛑 Shutting down AI Pokemon Trainer Dashboard...")
         
         try:
+            # Stop running flag
+            self.running = False
+            
+            # Cancel background tasks
+            for task in self.background_tasks:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        logger.error(f"❌ Error cancelling task: {e}")
+            
             # Stop all managed processes
             await self.process_manager.stop_all_processes()
             
@@ -204,7 +297,7 @@ class DashboardApp:
     
     async def _background_monitoring(self):
         """Background task for monitoring and updates"""
-        while True:
+        while self.running:
             try:
                 # Send periodic status updates
                 status = self.process_manager.get_system_status()
@@ -215,8 +308,8 @@ class DashboardApp:
                 
                 await connection_manager.broadcast_system_status(status)
                 
-                # Wait 10 seconds before next update
-                await asyncio.sleep(10)
+                # Wait 30 seconds before next update (reduced frequency)
+                await asyncio.sleep(30)
                 
             except Exception as e:
                 logger.error(f"❌ Error in background monitoring: {e}")
@@ -227,9 +320,37 @@ class DashboardApp:
         if port is None:
             port = self.dashboard_config.port
         
+        # Check if port is already in use and attempt cleanup
+        if self._is_port_in_use(port, host):
+            logger.warning(f"⚠️ Port {port} is already in use")
+            if self._cleanup_port(port, host):
+                logger.info(f"🧹 Port {port} cleaned up successfully")
+                # Wait a moment for the port to be released
+                import time
+                time.sleep(2)
+                
+                # Check again
+                if self._is_port_in_use(port, host):
+                    logger.error(f"❌ Port {port} is still in use after cleanup")
+                    # Try alternative port
+                    for alt_port in range(port + 1, port + 10):
+                        if not self._is_port_in_use(alt_port, host):
+                            logger.info(f"🔄 Using alternative port {alt_port}")
+                            port = alt_port
+                            break
+                    else:
+                        logger.error(f"❌ Could not find available port near {port}")
+                        return
+            else:
+                logger.error(f"❌ Could not clean up port {port}")
+                return
+        
         logger.info(f"🌐 Starting dashboard server at http://{host}:{port}")
         logger.info(f"📡 WebSocket available at ws://{host}:{port}/ws")
         logger.info(f"🔧 API available at http://{host}:{port}/api/v1")
+        
+        # Update process manager with actual port for mock processes
+        self.process_manager.dashboard_port = port
         
         # Create event loop and run
         loop = asyncio.new_event_loop()
@@ -269,6 +390,7 @@ def main():
     parser.add_argument('--port', type=int, help='Port to bind to (overrides config)')
     parser.add_argument('--frontend-only', action='store_true', help='Start only frontend and dashboard API (skip AI processes)')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--mock', action='store_true', help='Start in mock mode with simulated game processes for testing')
     
     args = parser.parse_args()
     
@@ -278,12 +400,19 @@ def main():
         logging.getLogger('process_manager').setLevel(logging.DEBUG)
     
     try:
-        app = DashboardApp(config_path=args.config)
+        # Create DashboardApp with flags passed to constructor
+        app = DashboardApp(
+            config_path=args.config,
+            frontend_only=args.frontend_only,
+            mock_mode=args.mock,
+            debug=args.debug
+        )
         
-        # Pass frontend-only flag to app
         if args.frontend_only:
-            app.frontend_only = True
             logger.info("🎯 Frontend-only mode: AI processes will be skipped")
+        
+        if args.mock:
+            logger.info("🎭 Mock mode: Using simulated game processes for testing")
         
         app.run(host=args.host, port=args.port)
     except Exception as e:

@@ -23,6 +23,7 @@ import websockets
 sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 
 from core.base_capture_system import BaseCaptureSystem, VideoSegment
+from core.logging_config import configure_logging, get_logger, get_timeline_logger
 import PIL.Image
 
 
@@ -368,6 +369,10 @@ class VideoCaptureProcess:
             
             print(f"📸 Generated GIF: {len(gif_frames)} frames, {duration:.2f}s")
             
+            # TIMELINE EVENT 2: T+0.1s - Video Capture generates GIF from rolling buffer → sends to dashboard
+            timeline_logger = get_timeline_logger("video_capture")
+            timeline_logger.log_event(2, "0.1s", "Video Capture generates GIF from rolling buffer → sends to dashboard")
+            
             # Send to dashboard if connected
             if self.dashboard_enabled and self.dashboard_ws:
                 self._send_gif_to_dashboard_threaded(gif_data_b64, metadata)
@@ -396,7 +401,7 @@ class VideoCaptureProcess:
             images = [frame.image for frame in frames]
             
             # OPTIMIZATION 2: Resize images for smaller file size
-            gif_width = gif_optimization.get('gif_width', 320)  # Default: 320px width
+            gif_width = gif_optimization.get('gif_width', 240)  # Default: GBA is 240px in width
             if images and images[0].width > gif_width:
                 aspect_ratio = images[0].height / images[0].width
                 gif_height = int(gif_width * aspect_ratio)
@@ -583,8 +588,13 @@ def main():
     parser.add_argument('--config', default='config_emulator.json', 
                        help='Path to configuration file')
     parser.add_argument('--port', type=int, help='IPC port override')
+    parser.add_argument('--debug', action='store_true', 
+                       help='Enable debug logging')
     
     args = parser.parse_args()
+    
+    # Configure logging for video capture process
+    configure_logging(debug=args.debug, process_name="video_capture")
     
     # Create and run video capture process
     capture_process = VideoCaptureProcess(args.config)

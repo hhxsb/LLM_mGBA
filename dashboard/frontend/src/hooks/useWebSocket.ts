@@ -63,7 +63,19 @@ export interface UseWebSocketReturn {
   connectionError: string | null;
 }
 
-const WS_URL = `ws://${window.location.host}/ws`;
+// WebSocket should connect to dashboard backend, not frontend dev server
+const getWebSocketURL = () => {
+  if (window.location.host.includes(':5173')) {
+    // Development mode: frontend is on 5173, need to find dashboard backend port
+    // Try ports in order: 3001 (mock mode), 3000 (default)
+    return ['ws://localhost:3001/ws', 'ws://localhost:3000/ws'];
+  } else {
+    // Production: same host
+    return [`ws://${window.location.host}/ws`];
+  }
+};
+
+const WS_URLS = getWebSocketURL();
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
@@ -76,75 +88,126 @@ export const useWebSocket = (): UseWebSocketReturn => {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentUrlIndex = useRef(0);
 
   const connect = useCallback(() => {
-    try {
-      console.log('🔗 Connecting to WebSocket:', WS_URL);
-      
-      const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
+    const tryConnection = (urlIndex: number) => {
+      if (urlIndex >= WS_URLS.length) {
+        setConnectionError('Could not connect to any dashboard backend port');
+        return;
+      }
 
-      ws.onopen = () => {
-        console.log('✅ WebSocket connected');
-        setIsConnected(true);
-        setConnectionError(null);
-        reconnectAttempts.current = 0;
+      const WS_URL = WS_URLS[urlIndex];
+      try {
+        console.log(`🔗 Trying WebSocket connection ${urlIndex + 1}/${WS_URLS.length}:`, WS_URL);
         
-        // Send ping to test connection
-        ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
-      };
+        const ws = new WebSocket(WS_URL);
+        wsRef.current = ws;
 
-      ws.onmessage = (event) => {
-        try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          handleMessage(message);
-        } catch (error) {
-          console.error('❌ Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
-        setIsConnected(false);
-        wsRef.current = null;
-
-        // Attempt reconnection if not a normal close
-        if (event.code !== 1000 && reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
-          setConnectionError(`Connection lost. Reconnecting... (${reconnectAttempts.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
-          reconnectAttempts.current++;
+        ws.onopen = () => {
+          console.log(`✅ WebSocket connected to ${WS_URL}`);
+          setIsConnected(true);
+          setConnectionError(null);
+          reconnectAttempts.current = 0;
+          currentUrlIndex.current = urlIndex; // Remember successful URL
           
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, RECONNECT_DELAY);
-        } else if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-          setConnectionError('Connection failed after multiple attempts. Please refresh the page.');
-        }
-      };
+          // Send ping to test connection
+          ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        };
 
-      ws.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-        setConnectionError('WebSocket connection error');
-      };
+        ws.onmessage = (event) => {
+          try {
+            const message: WebSocketMessage = JSON.parse(event.data);
+            handleMessage(message);
+          } catch (error) {
+            console.error('❌ Error parsing WebSocket message:', error);
+          }
+        };
 
-    } catch (error) {
-      console.error('❌ Failed to create WebSocket connection:', error);
-      setConnectionError('Failed to establish connection');
-    }
+        ws.onclose = (event) => {
+          console.log(`🔌 WebSocket disconnected from ${WS_URL}:`, event.code, event.reason);
+          setIsConnected(false);
+          wsRef.current = null;
+
+          // Attempt reconnection if not a normal close
+          if (event.code !== 1000 && reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+            setConnectionError(`Connection lost. Reconnecting... (${reconnectAttempts.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+            reconnectAttempts.current++;
+            
+            reconnectTimeoutRef.current = setTimeout(() => {
+              connect();
+            }, RECONNECT_DELAY);
+          } else if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+            setConnectionError('Connection failed after multiple attempts. Please refresh the page.');
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error(`❌ WebSocket error on ${WS_URL}:`, error);
+          // Try next URL in the list
+          tryConnection(urlIndex + 1);
+        };
+
+      } catch (error) {
+        console.error(`❌ Failed to create WebSocket connection to ${WS_URL}:`, error);
+        // Try next URL in the list
+        tryConnection(urlIndex + 1);
+      }
+    };
+
+    // Start trying connections from the first URL
+    tryConnection(0);
   }, []);
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
-    console.log('📥 Received message:', message.type);
+    console.log('📥 Received message:', message.type, message);
+    
+    // DEBUG LOGGING: Frontend message reception tracking
+    console.log('📸 FRONTEND: Message received via WebSocket:', message.type);
 
     switch (message.type) {
       case 'chat_message':
-        const chatMessage = message.data.message as ChatMessage;
-        setMessages(prev => [...prev, chatMessage]);
+        console.log('📸 FRONTEND: Processing chat_message for display');
+        console.log('🔍 Chat message data structure:', message.data);
+        
+        // Handle potentially double-nested structure from AI processes
+        let chatMessage: ChatMessage;
+        if (message.data.data && message.data.data.message) {
+          // Double-nested from AI process
+          chatMessage = message.data.data.message as ChatMessage;
+        } else if (message.data.message) {
+          // Single-nested from backend handler
+          chatMessage = message.data.message as ChatMessage;
+        } else {
+          // Direct message
+          chatMessage = message.data as ChatMessage;
+        }
+        
+        console.log('💬 Processing chat message:', chatMessage);
+        if (chatMessage && chatMessage.type && chatMessage.content) {
+          console.log('📸 FRONTEND: Valid chat message, updating React state for display');
+          console.log('✅ Adding message to state:', chatMessage.id, chatMessage.type);
+          setMessages(prev => {
+            const newMessages = [...prev, chatMessage];
+            console.log('📸 FRONTEND: React state updated, triggering component re-render');
+            console.log('📚 Updated messages state:', {
+              previousCount: prev.length,
+              newCount: newMessages.length,
+              latestMessage: chatMessage.id
+            });
+            return newMessages;
+          });
+        } else {
+          console.error('❌ Invalid chat message structure:', chatMessage);
+        }
         break;
 
       case 'message_history':
         const historicalMessages = message.data.messages.map((msg: any) => 
           msg.data?.message || msg
         ).filter((msg: any) => msg.type && msg.content);
+        console.log('📚 Loading message history:', historicalMessages.length, 'messages');
+        console.log('📚 Historical messages details:', historicalMessages.map(m => ({ id: m.id, type: m.type })));
         setMessages(historicalMessages);
         break;
 
@@ -176,6 +239,13 @@ export const useWebSocket = (): UseWebSocketReturn => {
         setMessages([]);
         break;
 
+      case 'ping':
+        // Respond to server ping
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        }
+        break;
+        
       case 'pong':
         // Handle ping response
         break;

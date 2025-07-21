@@ -7,6 +7,10 @@ config.json
 config_*.json
 !config.template.json
 
+#Vibe coding
+.claude/
+CLAUDE.md
+
 # Game Files
 pokemon-red.sav
 pokemon-red.gb

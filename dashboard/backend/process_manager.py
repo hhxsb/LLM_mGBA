@@ -15,18 +15,23 @@ from pathlib import Path
 import logging
 
 sys.path.append(str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from models import ProcessInfo, ProcessStatus
+from core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("dashboard.process_manager")
 
 class ProcessManager:
     """Manages all AI Pokemon Trainer processes"""
     
-    def __init__(self, config: Dict, frontend_only: bool = False):
+    def __init__(self, config: Dict, frontend_only: bool = False, mock_mode: bool = False, dashboard_port: int = None):
         self.config = config
         self.frontend_only = frontend_only
+        self.mock_mode = mock_mode
+        self.dashboard_port = dashboard_port  # Actual dashboard port
         self.processes: Dict[str, ProcessInfo] = {}
         self.process_handles: Dict[str, subprocess.Popen] = {}
+        self.monitoring_tasks: Dict[str, asyncio.Task] = {}
         self.start_time = time.time()
         self.project_root = Path(__file__).parent.parent.parent
         
@@ -35,7 +40,7 @@ class ProcessManager:
     
     def _init_process_configs(self):
         """Initialize process configuration details"""
-        logger.debug(f"🔧 Initializing process configs (frontend_only: {self.frontend_only})")
+        logger.debug(f"🔧 Initializing process configs (frontend_only: {self.frontend_only}, mock_mode: {self.mock_mode})")
         
         # Check if npm is available
         frontend_dir = self.project_root / "dashboard" / "frontend"
@@ -58,7 +63,7 @@ class ProcessManager:
                 "required_for": ["game_control"],
                 "startup_delay": 2.0,
                 "optional": True,
-                "description": "Video capture process",
+                "description": "Mock video capture process" if self.mock_mode else "Video capture process",
                 "auto_restart": False
             },
             "game_control": {
@@ -68,7 +73,7 @@ class ProcessManager:
                 "required_for": [],
                 "startup_delay": 3.0,
                 "optional": True,
-                "description": "Game control process",
+                "description": "Mock game control process" if self.mock_mode else "Game control process",
                 "auto_restart": False
             },
             "knowledge_system": {
@@ -138,21 +143,59 @@ class ProcessManager:
     
     def _get_video_capture_command(self):
         """Get video capture command if file exists"""
-        video_capture_file = self.project_root / "video_capture_process.py"
-        if video_capture_file.exists():
-            return [sys.executable, "video_capture_process.py", "--config", "config_emulator.json"]
+        if self.mock_mode:
+            # Use mock video processor in mock mode
+            mock_video_file = self.project_root / "mock_video_processor.py"
+            if mock_video_file.exists():
+                port = self.config.get("dual_process_mode", {}).get("video_capture_port", 8889)
+                cmd = [sys.executable, "mock_video_processor.py", "--port", str(port)]
+                # Add debug flag if environment variable is set
+                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                    cmd.append("--debug")
+                return cmd
+            else:
+                logger.warning("⚠️ mock_video_processor.py not found - skipping")
+                return None
         else:
-            logger.warning("⚠️ video_capture_process.py not found - skipping")
-            return None
+            # Use real video capture process
+            video_capture_file = self.project_root / "video_capture_process.py"
+            if video_capture_file.exists():
+                cmd = [sys.executable, "video_capture_process.py", "--config", "config_emulator.json"]
+                # Add debug flag if environment variable is set
+                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                    cmd.append("--debug")
+                return cmd
+            else:
+                logger.warning("⚠️ video_capture_process.py not found - skipping")
+                return None
     
     def _get_game_control_command(self):
         """Get game control command if file exists"""
-        game_control_file = self.project_root / "game_control_process.py"
-        if game_control_file.exists():
-            return [sys.executable, "game_control_process.py", "--config", "config_emulator.json"]
+        if self.mock_mode:
+            # Use mock game processor in mock mode
+            mock_game_file = self.project_root / "mock_game_processor.py"
+            if mock_game_file.exists():
+                dashboard_port = self.dashboard_port or self.config.get("dashboard", {}).get("port", 3000)
+                cmd = [sys.executable, "mock_game_processor.py", "--dashboard-port", str(dashboard_port)]
+                # Add debug flag if environment variable is set
+                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                    cmd.append("--debug")
+                return cmd
+            else:
+                logger.warning("⚠️ mock_game_processor.py not found - skipping")
+                return None
         else:
-            logger.warning("⚠️ game_control_process.py not found - skipping")
-            return None
+            # Use real game control process
+            game_control_file = self.project_root / "game_control_process.py"
+            if game_control_file.exists():
+                cmd = [sys.executable, "game_control_process.py", "--config", "config_emulator.json"]
+                # Add debug flag if environment variable is set
+                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                    cmd.append("--debug")
+                return cmd
+            else:
+                logger.warning("⚠️ game_control_process.py not found - skipping")
+                return None
     
     def _get_knowledge_system_command(self):
         """Get knowledge system command if available"""
@@ -238,7 +281,8 @@ class ProcessManager:
             logger.info(f"✅ Started {process_name} (PID: {process.pid})")
             
             # Start monitoring task
-            asyncio.create_task(self._monitor_process(process_name))
+            monitoring_task = asyncio.create_task(self._monitor_process(process_name))
+            self.monitoring_tasks[process_name] = monitoring_task
             
             return True
             
@@ -272,6 +316,13 @@ class ProcessManager:
             
             del self.process_handles[process_name]
             process_info.status = ProcessStatus.STOPPED
+            
+            # Cancel monitoring task
+            if process_name in self.monitoring_tasks:
+                task = self.monitoring_tasks[process_name]
+                if not task.done():
+                    task.cancel()
+                del self.monitoring_tasks[process_name]
             process_info.pid = None
             
             logger.info(f"✅ Stopped {process_name}")
@@ -289,6 +340,16 @@ class ProcessManager:
         startup_order = self._get_startup_order()
         for process_name in reversed(startup_order):
             await self.stop_process(process_name)
+        
+        # Cancel all remaining monitoring tasks
+        for process_name, task in list(self.monitoring_tasks.items()):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self.monitoring_tasks.clear()
         
         logger.info("✅ All processes stopped")
     
@@ -340,8 +401,13 @@ class ProcessManager:
         if process_name == "game_control":
             # game_control requires video_capture to be running
             video_capture_info = self.processes.get("video_capture")
-            if not video_capture_info or video_capture_info.status.value != "running":
-                logger.debug(f"🔍 game_control dependency check: video_capture not running")
+            if not video_capture_info:
+                logger.debug(f"🔍 game_control dependency check: video_capture not found")
+                return False
+            
+            logger.debug(f"🔍 game_control dependency check: video_capture status = {video_capture_info.status}")
+            if video_capture_info.status != ProcessStatus.RUNNING:
+                logger.debug(f"🔍 game_control dependency check: video_capture not running (status: {video_capture_info.status})")
                 return False
         
         return True
