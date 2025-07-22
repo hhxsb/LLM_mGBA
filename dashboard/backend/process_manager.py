@@ -264,14 +264,13 @@ class ProcessManager:
             logger.info(f"🔄 Starting {process_name}...")
             process_info.status = ProcessStatus.STARTING
             
-            # Start the process
+            # Start the process (child processes handle their own logging)
             process = subprocess.Popen(
                 config["command"],
                 cwd=config["cwd"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
+                text=True
             )
             
             self.process_handles[process_name] = process
@@ -279,6 +278,15 @@ class ProcessManager:
             process_info.status = ProcessStatus.RUNNING
             
             logger.info(f"✅ Started {process_name} (PID: {process.pid})")
+            logger.info(f"🔍 Command: {' '.join(config['command'])}")
+            logger.info(f"🔍 Working directory: {config['cwd']}")
+            logger.info(f"🔍 Environment variables: POKEMON_AI_DEBUG={os.getenv('POKEMON_AI_DEBUG', 'not set')}")
+            
+            # Log the individual log file path for this process (per specification)
+            import tempfile
+            log_dir = os.path.join(tempfile.gettempdir(), 'pokemon_ai_logs')
+            log_file = os.path.join(log_dir, f'{process_name}.log')
+            logger.info(f"📁 Process {process_name} logging to: {log_file}")
             
             # Start monitoring task
             monitoring_task = asyncio.create_task(self._monitor_process(process_name))

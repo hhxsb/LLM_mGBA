@@ -12,6 +12,7 @@ const App: React.FC = () => {
     isConnected, 
     messages, 
     systemStatus, 
+    processLogs,
     connectionError,
     clearChat 
   } = useWebSocket();
@@ -162,6 +163,7 @@ const App: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border overflow-hidden h-full">
               <AdminPanel 
                 systemStatus={systemStatus}
+                processLogs={processLogs}
                 isConnected={isConnected}
               />
             </div>

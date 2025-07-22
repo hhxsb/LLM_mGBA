@@ -40,15 +40,39 @@ class PokemonAILogger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         
+        # Create file handler for individual process logging
+        import tempfile
+        log_dir = os.path.join(tempfile.gettempdir(), 'pokemon_ai_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f'{process_name}.log')
+        
+        # Use 'w' mode to overwrite existing file (per requirements)
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(level)
+        
+        # Create consolidated Pokemon AI log file handler (for AI processes only)
+        consolidated_handler = None
+        if process_name in ['game_control', 'video_capture', 'knowledge_system']:
+            consolidated_log_file = os.path.join(log_dir, 'pokemon_ai_consolidated.log')
+            consolidated_handler = logging.FileHandler(consolidated_log_file, mode='a')  # Append mode
+            consolidated_handler.setLevel(level)
+        
         # Create detailed formatter with process identification
         formatter = logging.Formatter(
             fmt='%(asctime)s - [%(process)d:%(processName)s] - %(name)s - %(levelname)s - %(message)s',
             datefmt='%H:%M:%S'
         )
         console_handler.setFormatter(formatter)
+        file_handler.setFormatter(formatter)
         
-        # Add handler to root logger
+        # Add handlers to root logger
         root_logger.addHandler(console_handler)
+        root_logger.addHandler(file_handler)
+        
+        # Add consolidated handler for AI processes only
+        if consolidated_handler:
+            consolidated_handler.setFormatter(formatter)
+            root_logger.addHandler(consolidated_handler)
         
         # Prevent duplicate logs
         root_logger.propagate = False
@@ -58,6 +82,11 @@ class PokemonAILogger:
         # Log configuration complete
         logger = cls.get_logger(f"{process_name}.config")
         logger.info(f"🔧 Logging configured for process '{process_name}' (debug={debug})")
+        logger.info(f"📁 Individual log file: {log_file}")
+        
+        # Log consolidated file info for AI processes
+        if consolidated_handler:
+            logger.info(f"📋 Consolidated Pokemon AI log: {consolidated_log_file}")
         
         if debug:
             logger.debug("🐛 Debug logging enabled - you will see detailed flow information")
@@ -91,8 +120,10 @@ class PokemonAILogger:
         """Set environment variable for child processes to inherit debug mode."""
         if cls._debug_mode:
             os.environ['POKEMON_AI_DEBUG'] = '1'
+            print(f"🔧 Set POKEMON_AI_DEBUG=1 for child processes (debug_mode={cls._debug_mode})")
         else:
             os.environ.pop('POKEMON_AI_DEBUG', None)
+            print(f"🔧 Removed POKEMON_AI_DEBUG environment variable (debug_mode={cls._debug_mode})")
 
 
 def get_logger(name: str) -> logging.Logger:

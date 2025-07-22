@@ -375,13 +375,28 @@ Game started: {timestamp}
             self.logger.debug(f"💾 GIF saved to: {ai_request_dir}/ai_content_01_*.gif")
         
         try:
+            # 📸 Add prompt context logging before LLM call (missing from dual process mode)
+            self.logger.info(f"📸 LLM PROMPT CONTEXT: Map={current_map}, Player=({self.current_game_state.player_x},{self.current_game_state.player_y})")
+            self.logger.debug(f"📸 LLM PROMPT LENGTH: {len(prompt)} characters")
+            if self.debug_mode:
+                self.logger.debug(f"📸 LLM FULL PROMPT: {prompt[:500]}{'...' if len(prompt) > 500 else ''}")
+            
             response, tool_calls, text = self.llm_client.call_with_tools(
                 message=prompt,
                 tools=tool_objects,
                 images=[gif_image]
             )
             
+            # 📸 Add enhanced response logging (missing from dual process mode)
             self.logger.ai_response(text)
+            self.logger.info(f"📸 LLM RESPONSE PROCESSING: {len(tool_calls)} tool calls, {len(text)} chars response")
+            
+            # Log tool call details
+            if tool_calls:
+                for i, call in enumerate(tool_calls):
+                    self.logger.debug(f"📸 LLM TOOL CALL {i+1}: {call.name} with {len(call.arguments)} arguments")
+            else:
+                self.logger.warning("📸 LLM TOOL CALLS: No tool calls found in response")
             
             # Track conversation state based on AI response
             self._update_conversation_state_from_response(text)
@@ -396,13 +411,20 @@ Game started: {timestamp}
             button_codes = None
             button_durations = []
             
+            # 📸 Add decision reasoning logging throughout AI decision pipeline
+            self.logger.debug(f"📸 DECISION PIPELINE: Processing {len(tool_calls)} tool calls for button extraction")
+            
             for call in tool_calls:
                 if call.name == 'press_button':
                     buttons = call.arguments.get('buttons', [])
                     durations = call.arguments.get('durations', [])
                     
+                    # 📸 Log button selection reasoning
+                    self.logger.info(f"📸 BUTTON SELECTION: LLM chose {len(buttons)} buttons: {buttons}")
+                    
                     # Convert button names to codes
                     button_codes = self.game_engine.convert_button_names_to_codes(buttons)
+                    self.logger.debug(f"📸 BUTTON CONVERSION: {buttons} → codes {button_codes}")
                     
                     # Convert durations to integers if provided
                     if durations:
@@ -411,17 +433,28 @@ Game started: {timestamp}
                             # Ensure durations list matches buttons list length
                             while len(button_durations) < len(button_codes):
                                 button_durations.append(2)  # Default duration
+                            self.logger.debug(f"📸 BUTTON DURATIONS: {durations} → {button_durations}")
                         except (ValueError, TypeError):
-                            self.logger.warning(f"Invalid durations provided: {durations}")
+                            self.logger.warning(f"📸 INVALID DURATIONS: {durations}, using defaults")
                             button_durations = [2] * len(button_codes)  # Use defaults
                     else:
                         button_durations = [2] * len(button_codes)  # Default durations
+                        self.logger.debug(f"📸 BUTTON DURATIONS: Using default durations {button_durations}")
                     
+                    # 📸 Log final decision reasoning
+                    total_duration = sum(button_durations)
+                    self.logger.info(f"📸 FINAL DECISION: {len(button_codes)} buttons, {total_duration} frames total duration")
                     break
                 else:
                     self._handle_game_specific_tool_call(call)
             
-            return {'text': text, 'buttons': button_codes, 'durations': button_durations}
+            # 📸 Log decision outcome
+            if button_codes:
+                self.logger.info(f"📸 DECISION OUTCOME: SUCCESS - Will execute {len(button_codes)} button commands")
+            else:
+                self.logger.warning(f"📸 DECISION OUTCOME: NO BUTTONS - No press_button tool call found")
+            
+            return {'text': text, 'buttons': button_codes, 'durations': button_durations, 'raw_response': str(response), 'reasoning': f"Selected {len(button_codes) if button_codes else 0} buttons based on game context and visual analysis"}
             
         except Exception as e:
             self.logger.error(f"Error making decision from processed video: {e}")

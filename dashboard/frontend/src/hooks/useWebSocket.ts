@@ -54,10 +54,19 @@ export interface SystemStatus {
   timestamp: number;
 }
 
+export interface ProcessLog {
+  timestamp: number;
+  level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
+  message: string;
+  source: string;
+  process_id: string;
+}
+
 export interface UseWebSocketReturn {
   isConnected: boolean;
   messages: ChatMessage[];
   systemStatus: SystemStatus | null;
+  processLogs: Record<string, ProcessLog[]>;
   sendMessage: (message: any) => void;
   clearChat: () => void;
   connectionError: string | null;
@@ -83,6 +92,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [processLogs, setProcessLogs] = useState<Record<string, ProcessLog[]>>({});
   const [connectionError, setConnectionError] = useState<string | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
@@ -215,6 +225,32 @@ export const useWebSocket = (): UseWebSocketReturn => {
         setSystemStatus(message.data);
         break;
 
+      case 'log_stream':
+        const logEntry: ProcessLog = {
+          timestamp: message.data.timestamp || Date.now() / 1000,
+          level: message.data.level || 'INFO',
+          message: message.data.message || '',
+          source: message.data.source || 'unknown',
+          process_id: message.data.process_id || 'unknown'
+        };
+        
+        setProcessLogs(prev => {
+          const processName = logEntry.source;
+          const currentLogs = prev[processName] || [];
+          
+          // Keep max 100 logs per process (FIFO queue)
+          const newLogs = [...currentLogs, logEntry];
+          if (newLogs.length > 100) {
+            newLogs.shift(); // Remove oldest
+          }
+          
+          return {
+            ...prev,
+            [processName]: newLogs
+          };
+        });
+        break;
+
       case 'gif_expired':
         const gifId = message.data.gif_id;
         setMessages(prev => prev.map(msg => {
@@ -287,6 +323,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
     isConnected,
     messages,
     systemStatus,
+    processLogs,
     sendMessage,
     clearChat,
     connectionError

@@ -120,6 +120,13 @@ class ConnectionManager:
             }
         })
     
+    async def broadcast_log_stream(self, log_data: Dict):
+        """Broadcast log stream message"""
+        await self.broadcast_message({
+            "type": "log_stream",
+            "data": log_data
+        })
+    
     async def _send_message_history(self, websocket: WebSocket):
         """Send recent message history to a newly connected client"""
         if not self.message_history:

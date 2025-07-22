@@ -23,6 +23,7 @@ from websocket_handler import websocket_handler, connection_manager
 from api import routes
 from models import DashboardConfig
 from core.logging_config import configure_logging, get_logger, PokemonAILogger
+from core.log_forwarder import initialize_log_forwarder, get_log_forwarder
 
 # Note: Logging will be configured in main() based on --debug flag
 logger = None  # Will be set after configuration
@@ -38,13 +39,9 @@ class DashboardApp:
         self.mock_mode = mock_mode
         self.debug = debug
         
-        # Configure logging for dashboard process
-        configure_logging(debug=debug, process_name="dashboard")
+        # Get logger (should already be configured)
         global logger
         logger = get_logger("dashboard.main")
-        
-        # Set environment variable for child processes
-        PokemonAILogger.set_debug_env_var()
         
         # Task management
         self.background_tasks = []
@@ -59,6 +56,9 @@ class DashboardApp:
         
         # Initialize process manager (will be updated with actual port in run method)
         self.process_manager = ProcessManager(self.config, frontend_only=self.frontend_only, mock_mode=self.mock_mode)
+        
+        # Initialize log forwarder for real-time log streaming
+        self.log_forwarder = initialize_log_forwarder(connection_manager.broadcast_log_stream)
         
         # Setup middleware
         self._setup_middleware()
@@ -248,6 +248,13 @@ class DashboardApp:
                 if "frontend" in self.process_manager.processes:
                     logger.info("🌐 Frontend available at: http://localhost:5173")
                     logger.info("📊 Dashboard API at: http://127.0.0.1:3000/api/v1")
+                
+                # Start log monitoring for all running processes
+                running_processes = {name for name, info in self.process_manager.processes.items() 
+                                   if info.status.value == "running"}
+                if running_processes:
+                    await self.log_forwarder.start_monitoring(running_processes)
+                    logger.info(f"📡 Started log monitoring for {len(running_processes)} processes")
             else:
                 logger.warning("⚠️ Some processes failed to start - dashboard will still work with reduced functionality")
             
@@ -279,6 +286,10 @@ class DashboardApp:
                         pass
                     except Exception as e:
                         logger.error(f"❌ Error cancelling task: {e}")
+            
+            # Stop log monitoring
+            if self.log_forwarder:
+                await self.log_forwarder.stop_monitoring()
             
             # Stop all managed processes
             await self.process_manager.stop_all_processes()
@@ -394,12 +405,13 @@ def main():
     
     args = parser.parse_args()
     
-    # Setup debug logging
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-        logging.getLogger('process_manager').setLevel(logging.DEBUG)
+    # Note: Debug logging is now handled by logging_config.py
     
     try:
+        # Configure logging first with proper debug flag
+        configure_logging(debug=args.debug, process_name="dashboard")
+        PokemonAILogger.set_debug_env_var()  # Set environment variable for child processes
+        
         # Create DashboardApp with flags passed to constructor
         app = DashboardApp(
             config_path=args.config,

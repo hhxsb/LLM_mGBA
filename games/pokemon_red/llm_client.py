@@ -78,6 +78,40 @@ class GeminiClient:
                 },
                 tools={"function_declarations": provider_tools}
             )
+            
+            # 📸 Add comprehensive LLM API response logging (missing from dual process mode)
+            from core.logging_config import get_logger
+            logger = get_logger("pokemon_red.llm_client")
+            
+            # Log basic response info
+            logger.info(f"📸 LLM API CALL SUCCESSFUL: Model={self.model_name}")
+            logger.debug(f"📸 LLM REQUEST: {len(enhanced_message)} chars, {len(images) if images else 0} images")
+            
+            # Log response structure details
+            if hasattr(response, 'candidates') and response.candidates:
+                logger.info(f"📸 LLM RESPONSE: {len(response.candidates)} candidates received")
+                for i, candidate in enumerate(response.candidates):
+                    if hasattr(candidate, 'finish_reason'):
+                        logger.debug(f"📸 LLM CANDIDATE {i}: finish_reason={candidate.finish_reason}")
+                    if hasattr(candidate, 'content') and candidate.content:
+                        parts_count = len(candidate.content.parts) if hasattr(candidate.content, 'parts') else 0
+                        logger.debug(f"📸 LLM CANDIDATE {i}: {parts_count} content parts")
+            
+            # Log any safety/content filtering
+            response_text = self._extract_text(response)
+            if response_text:
+                logger.info(f"📸 LLM RESPONSE TEXT: {response_text[:200]}{'...' if len(response_text) > 200 else ''}")
+            else:
+                logger.warning("📸 LLM RESPONSE: No text content extracted")
+                
+            # Log tool calls found
+            tool_calls = self._parse_tool_calls(response)
+            if tool_calls:
+                logger.info(f"📸 LLM TOOL CALLS: {len(tool_calls)} function calls detected")
+                for call in tool_calls:
+                    logger.debug(f"📸 LLM TOOL CALL: {call.name} with args: {call.arguments}")
+            else:
+                logger.warning("📸 LLM TOOL CALLS: No function calls detected")
         except Exception as e:
             error_str = str(e)
             if "MALFORMED_FUNCTION_CALL" in error_str:

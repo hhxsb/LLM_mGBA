@@ -216,6 +216,30 @@ class GameControlProcess(PokemonRedController):
         # Call parent method to get the decision
         decision = super()._make_decision_from_processed_video(processed_video)
         
+        # 📸 Add detailed LLM response and decision reasoning logging (missing from dual process mode)
+        if decision:
+            # Extract and log detailed LLM response content
+            response_text = decision.get('text', '')
+            raw_response = decision.get('raw_response', '')
+            reasoning = decision.get('reasoning', '')
+            
+            self.logger.info(f"📸 LLM RESPONSE CONTENT: {response_text}")
+            if reasoning:
+                self.logger.info(f"📸 LLM DECISION REASONING: {reasoning}")
+            if raw_response and raw_response != response_text:
+                self.logger.debug(f"📸 LLM RAW RESPONSE: {raw_response}")
+            
+            # Log button decision reasoning
+            button_codes = decision.get('buttons', [])
+            if button_codes:
+                button_names = []
+                button_code_to_name = {0: 'A', 1: 'B', 2: 'SELECT', 3: 'START', 4: 'RIGHT', 5: 'LEFT', 6: 'UP', 7: 'DOWN'}
+                for code in button_codes:
+                    button_names.append(button_code_to_name.get(code, f'BUTTON_{code}'))
+                self.logger.info(f"📸 LLM BUTTON DECISION: Chose {len(button_codes)} buttons: {', '.join(button_names)}")
+        else:
+            self.logger.warning("📸 LLM RESPONSE: No decision made by LLM")
+        
         processing_time = time.time() - start_time
         
         # Send AI response and actions to dashboard if connected

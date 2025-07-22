@@ -4,6 +4,8 @@ interface ProcessLog {
   timestamp: number;
   level: 'INFO' | 'ERROR' | 'WARNING' | 'DEBUG';
   message: string;
+  source: string;
+  process_id: string;
 }
 
 interface ProcessInfo {
@@ -16,45 +18,18 @@ interface ProcessInfo {
 
 interface AdminPanelProps {
   systemStatus: any;
+  processLogs: Record<string, ProcessLog[]>;
   isConnected: boolean;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, processLogs, isConnected }) => {
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
-  const [processLogs, setProcessLogs] = useState<ProcessLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timer | null>(null);
 
   const processes = systemStatus?.system?.processes || {};
-
-  useEffect(() => {
-    // Auto-refresh logs every 5 seconds if a process is selected
-    if (selectedProcess && isConnected) {
-      const interval = setInterval(() => {
-        fetchProcessLogs(selectedProcess);
-      }, 5000);
-      setRefreshInterval(interval);
-      
-      return () => {
-        if (interval) clearInterval(interval);
-      };
-    } else if (refreshInterval) {
-      clearInterval(refreshInterval);
-      setRefreshInterval(null);
-    }
-  }, [selectedProcess, isConnected]);
-
-  const fetchProcessLogs = async (processName: string) => {
-    try {
-      const response = await fetch(`/api/v1/processes/${processName}/logs?limit=50`);
-      if (response.ok) {
-        const data = await response.json();
-        setProcessLogs(data.logs || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch process logs:', error);
-    }
-  };
+  
+  // Get logs for selected process from real-time stream
+  const selectedProcessLogs = selectedProcess ? (processLogs[selectedProcess] || []) : [];
 
   const restartProcess = async (processName: string) => {
     setLoading(true);
@@ -67,8 +42,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
         const data = await response.json();
         if (data.success) {
           alert(`✅ ${processName} restarted successfully`);
-          // Refresh logs after restart
-          setTimeout(() => fetchProcessLogs(processName), 2000);
         } else {
           alert(`❌ Failed to restart ${processName}: ${data.message}`);
         }
@@ -178,7 +151,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
                 }`}
                 onClick={() => {
                   setSelectedProcess(name);
-                  fetchProcessLogs(name);
                 }}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -197,6 +169,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
                 {info.port && (
                   <div className="text-xs text-gray-500">Port: {info.port}</div>
                 )}
+                
+                {/* Display log file path for debugging */}
+                <div className="text-xs text-gray-500 mt-1">
+                  📁 Log: /tmp/pokemon_ai_logs/{name}.log
+                </div>
                 
                 {info.last_error && (
                   <div className="text-xs text-red-600 mt-1 truncate">
@@ -240,13 +217,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
                     >
                       🔄 Restart
                     </button>
-                    <button
-                      onClick={() => fetchProcessLogs(selectedProcess)}
-                      disabled={loading}
-                      className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
-                    >
-                      🔍 Refresh Logs
-                    </button>
+                    <div className="text-xs text-gray-500">
+                      📡 Real-time logs ({selectedProcessLogs.length} entries)
+                    </div>
                   </div>
                 </div>
               </div>
@@ -254,10 +227,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
               {/* Process Logs */}
               <div className="flex-1 overflow-y-auto">
                 <div className="p-3">
-                  <h4 className="font-medium text-gray-800 mb-2">Recent Logs</h4>
-                  {processLogs.length > 0 ? (
-                    <div className="space-y-1 bg-black text-green-400 p-3 rounded font-mono text-xs">
-                      {processLogs.map((log, index) => (
+                  <h4 className="font-medium text-gray-800 mb-2">
+                    Real-time Logs 
+                    {isConnected ? (
+                      <span className="text-green-600 text-sm ml-2">🟢 Live</span>
+                    ) : (
+                      <span className="text-red-600 text-sm ml-2">🔴 Disconnected</span>
+                    )}
+                  </h4>
+                  {selectedProcessLogs.length > 0 ? (
+                    <div className="space-y-1 bg-black text-green-400 p-3 rounded font-mono text-xs max-h-96 overflow-y-auto">
+                      {selectedProcessLogs.map((log, index) => (
                         <div key={index} className="flex">
                           <span className="text-gray-400 w-20 flex-shrink-0">
                             {formatTimestamp(log.timestamp)}
@@ -273,7 +253,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ systemStatus, isConnected }) =>
                     </div>
                   ) : (
                     <div className="text-gray-500 text-center py-8">
-                      No logs available for {selectedProcess}
+                      {isConnected 
+                        ? `No logs received for ${selectedProcess} yet` 
+                        : 'Waiting for connection to receive logs...'
+                      }
                     </div>
                   )}
                 </div>
