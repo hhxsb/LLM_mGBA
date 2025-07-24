@@ -24,6 +24,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 
 from core.base_capture_system import BaseCaptureSystem, VideoSegment
 from core.logging_config import configure_logging, get_logger, get_timeline_logger
+from core.message_bus import message_bus, publish_gif_message
+from core.message_types import UnifiedMessage
 import PIL.Image
 
 
@@ -67,19 +69,18 @@ class VideoCaptureProcess:
         self.server_socket = None
         self.ipc_port = self.config.get('video_capture_port', 8889)
         
-        # Dashboard WebSocket client
-        self.dashboard_ws = None
+        # Dashboard integration via message bus
         self.dashboard_enabled = self.dashboard_config.get('enabled', False)
-        self.dashboard_port = self.dashboard_config.get('port', 3000)
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
-        print(f"🎬 Video Capture Process initialized")
-        print(f"   Capture FPS: {self.capture_fps}")
-        print(f"   Rolling window: {self.rolling_window_seconds}s ({self.max_frames} frames)")
-        print(f"   IPC Port: {self.ipc_port}")
+        self.logger = get_logger("video_capture")
+        self.logger.info(f"🎬 Video Capture Process initialized")
+        self.logger.info(f"   Capture FPS: {self.capture_fps}")
+        self.logger.info(f"   Rolling window: {self.rolling_window_seconds}s ({self.max_frames} frames)")
+        self.logger.info(f"   IPC Port: {self.ipc_port}")
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from file."""
@@ -87,12 +88,12 @@ class VideoCaptureProcess:
             with open(config_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"❌ Error loading config: {e}")
+            self.logger.error(f"❌ Error loading config: {e}")
             return {}
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
-        print(f"\n🛑 Received signal {signum}, shutting down video capture process...")
+        self.logger.info(f"\n🛑 Received signal {signum}, shutting down video capture process...")
         self.stop()
     
     def _initialize_capture_system(self):
@@ -105,17 +106,17 @@ class VideoCaptureProcess:
             
             # Initialize the capture system
             if not self.capture_system.initialize():
-                print("❌ Failed to initialize capture backends")
+                self.logger.error("❌ Failed to initialize capture backends")
                 return False
             
             # The capture region is set internally by the capture system
             if hasattr(self.capture_system, 'capture_region') and self.capture_system.capture_region:
-                print(f"🎯 Found mGBA window: {self.capture_system.capture_region}")
+                self.logger.info(f"🎯 Found mGBA window: {self.capture_system.capture_region}")
             else:
-                print("⚠️ mGBA window not found, will capture full screen")
+                self.logger.warning("⚠️ mGBA window not found, will capture full screen")
                 
         except Exception as e:
-            print(f"❌ Failed to initialize capture system: {e}")
+            self.logger.error(f"❌ Failed to initialize capture system: {e}")
             return False
         
         return True
@@ -138,17 +139,11 @@ class VideoCaptureProcess:
         self.server_thread = threading.Thread(target=self._ipc_server_loop, daemon=True)
         self.server_thread.start()
         
-        # Connect to dashboard if enabled
+        self.logger.info(f"✅ Video capture process started successfully")
+        self.logger.info(f"   Capturing at {self.capture_fps} FPS")
+        self.logger.info(f"   IPC server listening on port {self.ipc_port}")
         if self.dashboard_enabled:
-            # Create a new thread for dashboard connection since this is not in an async context
-            dashboard_thread = threading.Thread(target=self._start_dashboard_connection, daemon=True)
-            dashboard_thread.start()
-        
-        print(f"✅ Video capture process started successfully")
-        print(f"   Capturing at {self.capture_fps} FPS")
-        print(f"   IPC server listening on port {self.ipc_port}")
-        if self.dashboard_enabled:
-            print(f"   Dashboard integration enabled (port {self.dashboard_port})")
+            self.logger.info(f"   Dashboard integration enabled via message bus")
         
         return True
     
@@ -373,9 +368,10 @@ class VideoCaptureProcess:
             timeline_logger = get_timeline_logger("video_capture")
             timeline_logger.log_event(2, "0.1s", "Video Capture generates GIF from rolling buffer → sends to dashboard")
             
-            # Send to dashboard if connected
-            if self.dashboard_enabled and self.dashboard_ws:
-                self._send_gif_to_dashboard_threaded(gif_data_b64, metadata)
+            # Send to dashboard via message bus
+            if self.dashboard_enabled:
+                publish_gif_message(gif_data_b64, metadata, source="video_capture")
+                self.logger.info(f"📤 Published GIF to message bus: {len(gif_data_b64)} bytes, {metadata.get('frameCount', 0)} frames")
             
             return response
             
@@ -448,120 +444,10 @@ class VideoCaptureProcess:
             'capture_fps': self.capture_fps,
             'last_gif_timestamp': self.last_gif_timestamp,
             'uptime': time.time() - self.start_time,
-            'dashboard_connected': self.dashboard_ws is not None
+            'dashboard_enabled': self.dashboard_enabled
         }
     
-    async def _connect_to_dashboard(self):
-        """Connect to dashboard WebSocket for real-time GIF streaming"""
-        dashboard_ws_url = f"ws://localhost:{self.dashboard_port}/ws"
-        max_retries = 5
-        retry_delay = 3.0
-        
-        for attempt in range(max_retries):
-            try:
-                print(f"🔗 Connecting to dashboard WebSocket: {dashboard_ws_url} (attempt {attempt + 1})")
-                self.dashboard_ws = await websockets.connect(dashboard_ws_url)
-                print("✅ Connected to dashboard WebSocket")
-                
-                # Start background task to maintain connection
-                asyncio.create_task(self._dashboard_ws_handler())
-                break
-                
-            except Exception as e:
-                print(f"⚠️ Failed to connect to dashboard (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                else:
-                    print("❌ Could not connect to dashboard, continuing without dashboard integration")
-                    self.dashboard_enabled = False
-    
-    async def _dashboard_ws_handler(self):
-        """Handle dashboard WebSocket connection"""
-        try:
-            # Keep connection alive and handle any incoming messages
-            async for message in self.dashboard_ws:
-                # Dashboard may send ping/status requests
-                data = json.loads(message)
-                if data.get('type') == 'ping':
-                    await self.dashboard_ws.send(json.dumps({'type': 'pong', 'timestamp': time.time()}))
-                    
-        except websockets.exceptions.ConnectionClosed:
-            print("📡 Dashboard WebSocket connection closed")
-            self.dashboard_ws = None
-        except Exception as e:
-            print(f"❌ Dashboard WebSocket error: {e}")
-            self.dashboard_ws = None
-    
-    async def _send_gif_to_dashboard(self, gif_data: str, metadata: Dict):
-        """Send GIF data to dashboard via WebSocket"""
-        if not self.dashboard_ws or not self.dashboard_enabled:
-            return
-        
-        try:
-            message = {
-                "type": "chat_message",
-                "timestamp": time.time(),
-                "data": {
-                    "message": {
-                        "id": f"gif_{int(time.time() * 1000)}",
-                        "type": "gif",
-                        "timestamp": time.time(),
-                        "sequence": int(time.time() % 10000),
-                        "content": {
-                            "gif": {
-                                "data": gif_data,
-                                "available": True,
-                                "metadata": metadata
-                            }
-                        }
-                    }
-                }
-            }
-            
-            await self.dashboard_ws.send(json.dumps(message))
-            print(f"📤 Sent GIF to dashboard: {len(gif_data)} bytes, {metadata.get('frameCount', 0)} frames")
-            
-        except Exception as e:
-            print(f"❌ Failed to send GIF to dashboard: {e}")
-            # Try to reconnect
-            self.dashboard_ws = None
-            if self.dashboard_enabled:
-                # Restart dashboard connection in a separate thread
-                dashboard_thread = threading.Thread(target=self._start_dashboard_connection, daemon=True)
-                dashboard_thread.start()
-    
-    def _send_gif_to_dashboard_threaded(self, gif_data: str, metadata: Dict):
-        """Send GIF to dashboard in a separate thread to avoid AsyncIO issues"""
-        def send_gif():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._send_gif_to_dashboard(gif_data, metadata))
-            except Exception as e:
-                print(f"❌ Failed to send GIF to dashboard: {e}")
-            finally:
-                try:
-                    loop.close()
-                except:
-                    pass
-        
-        gif_thread = threading.Thread(target=send_gif, daemon=True)
-        gif_thread.start()
-    
-    def _start_dashboard_connection(self):
-        """Start dashboard connection in a new event loop"""
-        try:
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._connect_to_dashboard())
-        except Exception as e:
-            print(f"⚠️ Dashboard connection failed: {e}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
+    # Old WebSocket dashboard methods removed - now using message bus for all communication
     
     def run_forever(self):
         """Run the video capture process until stopped."""

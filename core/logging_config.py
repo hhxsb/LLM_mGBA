@@ -46,13 +46,13 @@ class PokemonAILogger:
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f'{process_name}.log')
         
-        # Use 'w' mode to overwrite existing file (per requirements)
-        file_handler = logging.FileHandler(log_file, mode='w')
+        # Use 'a' mode to append to existing file for better continuity
+        file_handler = logging.FileHandler(log_file, mode='a')
         file_handler.setLevel(level)
         
         # Create consolidated Pokemon AI log file handler (for AI processes only)
         consolidated_handler = None
-        if process_name in ['game_control', 'video_capture', 'knowledge_system']:
+        if process_name in ['game_control', 'video_capture']:
             consolidated_log_file = os.path.join(log_dir, 'pokemon_ai_consolidated.log')
             consolidated_handler = logging.FileHandler(consolidated_log_file, mode='a')  # Append mode
             consolidated_handler.setLevel(level)

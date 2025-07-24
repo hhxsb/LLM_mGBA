@@ -328,9 +328,9 @@ class PokemonRedKnowledgeSystem:
 
 ### Dashboard Enhancements
 
-#### 1. New Analytics Panel
+#### 1. Separate Analytics Page
 ```typescript
-// src/components/AnalyticsPanel.tsx
+// src/pages/AnalyticsPage.tsx
 interface SessionAnalytics {
   totalDecisions: number;
   averageResponseTime: number;
@@ -339,10 +339,14 @@ interface SessionAnalytics {
   knowledgeGrowth: TimeSeriesData[];
 }
 
-const AnalyticsPanel: React.FC = () => {
+const AnalyticsPage: React.FC = () => {
   const [analytics, setAnalytics] = useState<SessionAnalytics>();
-  // Real-time analytics display
+  // Analytics data loaded only when user navigates to /analytics
+  // Not loaded during main dashboard operation
 };
+
+// src/App.tsx - Add new route
+<Route path="/analytics" component={AnalyticsPage} />
 ```
 
 #### 2. Historical Playback
@@ -455,18 +459,27 @@ PRAGMA mmap_size = 268435456; # 256MB
 ### Phase 2: Backend Integration  
 1. Integrate storage service with game control process
 2. Migrate knowledge system from JSON to SQLite
-3. Add WebSocket events for storage status
+3. Clean up old JSON knowledge files (`data/knowledge_graph.json`)
+4. Remove deprecated knowledge management Python files:
+   - `knowledge_system.py` (replaced by games/pokemon_red/knowledge_system.py)
+   - `knowledge_web_viewer.py` (web interface no longer needed)
+   - `knowledge_web_manager.py` (web management no longer needed)  
+   - `knowledge_manager.py` (replaced by SQLite storage)
+   - `knowledge_inspector.py` (replaced by analytics page)
+   - `monitor_knowledge.py` (replaced by real-time dashboard)
+   - `fix_knowledge.py` (cleanup utility no longer needed)
+   - `dashboard/backend/knowledge_integration.py` (replaced by storage service)
+5. Add WebSocket events for storage status
 
 ### Phase 3: Frontend Features
-1. Build analytics panel with basic metrics
-2. Add historical session viewer
+1. Build separate analytics page at `/analytics` route
+2. Add historical session viewer on analytics page
 3. Enhance chat interface with storage integration
 
-### Phase 4: Advanced Features
-1. Full-text search capabilities  
-2. Data export and import tools
-3. Performance optimization and monitoring
-4. Automated cleanup and archival
+### Phase 4: Final Features
+1. Data export tools for sessions
+2. Performance optimization and monitoring
+3. Automated cleanup and archival of old sessions
 
 ## Testing Strategy
 
@@ -506,26 +519,6 @@ PRAGMA mmap_size = 268435456; # 256MB
 - Backup strategies for critical game progress
 - Index optimization and statistics updates
 
-## Future Enhancements
-
-### Advanced Analytics
-- Machine learning on decision patterns
-- Performance trend analysis over time
-- Knowledge effectiveness scoring
-- Player behavior insights
-
-### Cloud Integration
-- Optional cloud backup of important sessions
-- Multi-device session synchronization
-- Collaborative knowledge sharing
-- Remote analytics and monitoring
-
-### Data Science Features
-- Export to popular ML formats (Parquet, HDF5)
-- Integration with Jupyter notebooks for analysis  
-- Statistical analysis of gameplay patterns
-- A/B testing framework for AI improvements
-
 ---
 
-This specification provides a comprehensive foundation for implementing persistent storage while maintaining the system's real-time performance requirements. The phased approach ensures incremental value delivery while building toward a sophisticated analytics and historical analysis platform.
+This specification provides a comprehensive foundation for implementing persistent storage while maintaining the system's real-time performance requirements. The phased approach ensures incremental value delivery focused on core Pokemon AI gameplay enhancement and historical analysis capabilities.

@@ -69,6 +69,7 @@ export interface UseWebSocketReturn {
   processLogs: Record<string, ProcessLog[]>;
   sendMessage: (message: any) => void;
   clearChat: () => void;
+  exportMessages: () => void;
   connectionError: string | null;
 }
 
@@ -87,10 +88,80 @@ const getWebSocketURL = () => {
 const WS_URLS = getWebSocketURL();
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
+const STORAGE_KEY = 'pokemon_ai_chat_messages';
+
+// Helper functions for localStorage message management
+const loadMessagesFromStorage = (): ChatMessage[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (error) {
+    console.error('❌ Error loading messages from localStorage:', error);
+  }
+  return [];
+};
+
+const saveMessagesToStorage = (messages: ChatMessage[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  } catch (error) {
+    console.error('❌ Error saving messages to localStorage:', error);
+  }
+};
+
+const addMessageToStorage = (newMessage: ChatMessage): ChatMessage[] => {
+  const currentMessages = loadMessagesFromStorage();
+  
+  // Check for duplicate messages by ID
+  if (currentMessages.find(msg => msg.id === newMessage.id)) {
+    console.log('🔄 Duplicate ignored:', newMessage.id.slice(0, 8));
+    return currentMessages;
+  }
+  
+  // Add new message to the end (append-only)
+  const updatedMessages = [...currentMessages, newMessage];
+  
+  // Limit to last 500 messages to prevent excessive storage usage
+  const limitedMessages = updatedMessages.slice(-500);
+  if (limitedMessages.length < updatedMessages.length) {
+    console.log(`🧹 Trimmed: ${updatedMessages.length} → ${limitedMessages.length}`);
+  }
+  
+  saveMessagesToStorage(limitedMessages);
+  return limitedMessages;
+};
+
+const exportMessages = (): void => {
+  try {
+    const messages = loadMessagesFromStorage();
+    const exportData = {
+      exported_at: new Date().toISOString(),
+      message_count: messages.length,
+      messages: messages
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pokemon-ai-chat-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    console.log('📥 Messages exported successfully');
+  } catch (error) {
+    console.error('❌ Error exporting messages:', error);
+  }
+};
 
 export const useWebSocket = (): UseWebSocketReturn => {
   const [isConnected, setIsConnected] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessagesFromStorage());
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [processLogs, setProcessLogs] = useState<Record<string, ProcessLog[]>>({});
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -170,56 +241,37 @@ export const useWebSocket = (): UseWebSocketReturn => {
   }, []);
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
-    console.log('📥 Received message:', message.type, message);
-    
-    // DEBUG LOGGING: Frontend message reception tracking
-    console.log('📸 FRONTEND: Message received via WebSocket:', message.type);
+    console.log('📥 WS MSG |', message.type);
 
     switch (message.type) {
       case 'chat_message':
-        console.log('📸 FRONTEND: Processing chat_message for display');
-        console.log('🔍 Chat message data structure:', message.data);
+        // Simplified parsing - unified messages have consistent structure
+        const unifiedMessage = message.data;
         
-        // Handle potentially double-nested structure from AI processes
-        let chatMessage: ChatMessage;
-        if (message.data.data && message.data.data.message) {
-          // Double-nested from AI process
-          chatMessage = message.data.data.message as ChatMessage;
-        } else if (message.data.message) {
-          // Single-nested from backend handler
-          chatMessage = message.data.message as ChatMessage;
+        if (unifiedMessage && unifiedMessage.id && unifiedMessage.type && unifiedMessage.content) {
+          console.log('✅ MSG PROCESSED |', unifiedMessage.type, '|', unifiedMessage.id.slice(0, 8));
+          
+          // Convert to frontend ChatMessage format
+          const chatMessage: ChatMessage = {
+            id: unifiedMessage.id,
+            type: unifiedMessage.type,
+            timestamp: unifiedMessage.timestamp,
+            sequence: unifiedMessage.sequence || 0,
+            content: unifiedMessage.content
+          };
+          
+          // Add to localStorage and get updated message list
+          const updatedMessages = addMessageToStorage(chatMessage);
+          
+          // Update React state with the complete message list from localStorage
+          setMessages(updatedMessages);
+          
+          console.log('📱 UI UPDATED | total:', updatedMessages.length);
         } else {
-          // Direct message
-          chatMessage = message.data as ChatMessage;
-        }
-        
-        console.log('💬 Processing chat message:', chatMessage);
-        if (chatMessage && chatMessage.type && chatMessage.content) {
-          console.log('📸 FRONTEND: Valid chat message, updating React state for display');
-          console.log('✅ Adding message to state:', chatMessage.id, chatMessage.type);
-          setMessages(prev => {
-            const newMessages = [...prev, chatMessage];
-            console.log('📸 FRONTEND: React state updated, triggering component re-render');
-            console.log('📚 Updated messages state:', {
-              previousCount: prev.length,
-              newCount: newMessages.length,
-              latestMessage: chatMessage.id
-            });
-            return newMessages;
-          });
-        } else {
-          console.error('❌ Invalid chat message structure:', chatMessage);
+          console.error('❌ Invalid unified message structure:', unifiedMessage);
         }
         break;
 
-      case 'message_history':
-        const historicalMessages = message.data.messages.map((msg: any) => 
-          msg.data?.message || msg
-        ).filter((msg: any) => msg.type && msg.content);
-        console.log('📚 Loading message history:', historicalMessages.length, 'messages');
-        console.log('📚 Historical messages details:', historicalMessages.map(m => ({ id: m.id, type: m.type })));
-        setMessages(historicalMessages);
-        break;
 
       case 'system_status':
         setSystemStatus(message.data);
@@ -272,7 +324,10 @@ export const useWebSocket = (): UseWebSocketReturn => {
         break;
 
       case 'chat_cleared':
+        // Clear both React state and localStorage
         setMessages([]);
+        saveMessagesToStorage([]);
+        console.log('🗑️ Chat cleared from both state and localStorage');
         break;
 
       case 'ping':
@@ -300,7 +355,12 @@ export const useWebSocket = (): UseWebSocketReturn => {
   }, []);
 
   const clearChat = useCallback(() => {
-    // Send clear request to server
+    // Clear immediately in frontend (don't wait for server)
+    setMessages([]);
+    saveMessagesToStorage([]);
+    console.log('🗑️ Chat cleared locally');
+    
+    // Optionally notify server (but don't depend on it)
     sendMessage({ type: 'clear_chat', timestamp: Date.now() });
   }, [sendMessage]);
 
@@ -326,6 +386,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
     processLogs,
     sendMessage,
     clearChat,
+    exportMessages,
     connectionError
   };
 };

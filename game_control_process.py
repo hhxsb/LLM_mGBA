@@ -22,6 +22,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 
 from games.pokemon_red.controller import PokemonRedController
 from core.logging_config import configure_logging, get_logger, get_timeline_logger
+from core.storage_service import StorageService, prepare_decision_data, prepare_action_data
+from core.message_bus import message_bus, publish_response_message, publish_action_message
+from core.message_types import UnifiedMessage
 import PIL.Image
 
 
@@ -36,23 +39,24 @@ class VideoProcessClient:
     def request_gif(self) -> Optional[Dict[str, Any]]:
         """Request a GIF from the video capture process."""
         try:
-            print(f"🔗 Connecting to video process at {self.host}:{self.port}")
+            logger = get_logger("game_control.video_client")
+            logger.debug(f"🔗 Connecting to video process at {self.host}:{self.port}")
+            
             # Connect to video process
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             
             # OPTIMIZATION: Adaptive timeout for large GIF transfers
-            # Base timeout from config, minimum 20 seconds for large GIFs
             dual_process_config = self.config.get('dual_process_mode', {})
             base_timeout = dual_process_config.get('process_communication_timeout', 10.0)
             adaptive_timeout = max(base_timeout, 20.0)
             sock.settimeout(adaptive_timeout)
-            print(f"🕒 Using adaptive timeout: {adaptive_timeout:.1f}s for GIF transfer")
+            logger.debug(f"🕒 Using adaptive timeout: {adaptive_timeout:.1f}s for GIF transfer")
             sock.connect((self.host, self.port))
             
             # Send request
             request = {'type': 'get_gif'}
             request_data = json.dumps(request).encode('utf-8')
-            print(f"📤 Sending GIF request: {request}")
+            logger.debug(f"📤 Sending GIF request")
             sock.send(request_data)
             
             # Receive response - handle potentially large messages
@@ -73,20 +77,20 @@ class VideoProcessClient:
             if not response_data:
                 raise Exception("No response received from video process")
             
-            print(f"📥 Received response: {len(response_data)} bytes")
+            logger.debug(f"📥 Received response: {len(response_data)} bytes")
             if response.get('success'):
                 frame_count = response.get('frame_count', 0)
                 duration = response.get('duration', 0.0)
-                print(f"✅ GIF received: {frame_count} frames, {duration:.2f}s")
+                logger.info(f"✅ GIF received: {frame_count} frames, {duration:.2f}s")
             else:
                 error = response.get('error', 'Unknown error')
-                print(f"❌ GIF request failed: {error}")
+                logger.error(f"❌ GIF request failed: {error}")
             
             sock.close()
             return response
             
         except Exception as e:
-            print(f"❌ Error requesting GIF from video process: {e}")
+            logger.error(f"❌ Error requesting GIF from video process: {e}")
             return None
     
     def get_status(self) -> Optional[Dict[str, Any]]:
@@ -107,7 +111,8 @@ class VideoProcessClient:
             return response
             
         except Exception as e:
-            print(f"❌ Error getting status from video process: {e}")
+            logger = get_logger("game_control.video_client")
+            logger.error(f"❌ Error getting status from video process: {e}")
             return None
     
     def gif_data_to_image(self, gif_data: str) -> Optional[PIL.Image.Image]:
@@ -124,15 +129,17 @@ class VideoProcessClient:
             image.load()
             
             # For animated GIFs, we need to preserve the animation
+            logger = get_logger("game_control.video_client")
             if hasattr(image, 'is_animated') and image.is_animated:
-                print(f"✅ Loaded animated GIF: {image.n_frames} frames, format={image.format}")
+                logger.debug(f"✅ Loaded animated GIF: {image.n_frames} frames, format={image.format}")
             else:
-                print(f"⚠️ Loaded static image: format={image.format}")
+                logger.debug(f"⚠️ Loaded static image: format={image.format}")
             
             return image
             
         except Exception as e:
-            print(f"❌ Error converting GIF data to image: {e}")
+            logger = get_logger("game_control.video_client")
+            logger.error(f"❌ Error converting GIF data to image: {e}")
             return None
 
 
@@ -160,11 +167,16 @@ class GameControlProcess(PokemonRedController):
         self.pending_gif_request = False
         self.action_delay_seconds = 0.5  # Wait 0.5s after action completion
         
-        # Dashboard WebSocket client
-        self.dashboard_ws = None
+        # Dashboard integration via message bus
         self.dashboard_config = config.get('dashboard', {})
         self.dashboard_enabled = self.dashboard_config.get('enabled', False)
-        self.dashboard_port = self.dashboard_config.get('port', 3000)
+        
+        # Storage service for SQLite persistence
+        self.storage_service = None
+        self.storage_enabled = config.get('storage', {}).get('enabled', True)
+        if self.storage_enabled:
+            self.storage_service = StorageService(config)
+            self.logger.info("🗃️ SQLite storage service initialized")
         
         self.logger.section("Game Control Process Initialized")
         self.logger.info(f"   Video process port: {video_port}")
@@ -174,7 +186,7 @@ class GameControlProcess(PokemonRedController):
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
-        print(f"\n🛑 Received signal {signum}, shutting down game control process...")
+        self.logger.info(f"\n🛑 Received signal {signum}, shutting down game control process...")
         self.stop()
     
     def start(self):
@@ -193,6 +205,17 @@ class GameControlProcess(PokemonRedController):
         buffer_duration = status.get('buffer_duration', 0.0)
         self.logger.success(f"Connected to video process: {buffer_frames} frames ({buffer_duration:.1f}s) in buffer")
         
+        # Initialize storage service if enabled
+        if self.storage_enabled and self.storage_service:
+            try:
+                # Initialize storage in a separate thread since we're not in async context
+                storage_thread = threading.Thread(target=self._initialize_storage_service, daemon=True)
+                storage_thread.start()
+                storage_thread.join(timeout=5.0)  # Wait up to 5 seconds for initialization
+            except Exception as e:
+                self.logger.error(f"❌ Failed to initialize storage service: {e}")
+                self.storage_enabled = False
+        
         # Start the base controller (socket server for emulator)
         self.logger.debug("🎮 Starting socket server for emulator connection...")
         result = super().start()
@@ -201,13 +224,52 @@ class GameControlProcess(PokemonRedController):
             self.logger.success("Game control process started successfully")
             self.logger.info("🎯 Waiting for mGBA emulator connection...")
             
-            # Connect to dashboard if enabled
+            # Start new game session if storage is enabled
+            if self.storage_enabled and self.storage_service:
+                try:
+                    session_thread = threading.Thread(target=self._start_storage_session, daemon=True)
+                    session_thread.start()
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to start storage session: {e}")
+            
+            # Dashboard integration enabled via message bus
             if self.dashboard_enabled:
-                # Create a new thread for dashboard connection since this is not in an async context
-                dashboard_thread = threading.Thread(target=self._start_dashboard_connection, daemon=True)
-                dashboard_thread.start()
+                self.logger.info("📊 Dashboard integration enabled via message bus")
         
         return result
+    
+    def _initialize_storage_service(self):
+        """Initialize storage service in async context."""
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.storage_service.initialize())
+            self.logger.success("✅ Storage service initialized")
+        except Exception as e:
+            self.logger.error(f"❌ Storage service initialization failed: {e}")
+            self.storage_enabled = False
+        finally:
+            try:
+                loop.close()
+            except:
+                pass
+    
+    def _start_storage_session(self):
+        """Start a new storage session."""
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            session_id = loop.run_until_complete(self.storage_service.start_session())
+            self.logger.success(f"🎮 Started storage session: {session_id}")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to start storage session: {e}")
+        finally:
+            try:
+                loop.close()
+            except:
+                pass
     
     def _make_decision_from_processed_video(self, processed_video):
         """Override to add dashboard integration for AI responses and actions."""
@@ -237,22 +299,35 @@ class GameControlProcess(PokemonRedController):
                 for code in button_codes:
                     button_names.append(button_code_to_name.get(code, f'BUTTON_{code}'))
                 self.logger.info(f"📸 LLM BUTTON DECISION: Chose {len(button_codes)} buttons: {', '.join(button_names)}")
+            
         else:
             self.logger.warning("📸 LLM RESPONSE: No decision made by LLM")
         
         processing_time = time.time() - start_time
         
-        # Send AI response and actions to dashboard if connected
-        if decision and self.dashboard_enabled:
+        # 🗃️ Store complete AI cycle in SQLite if storage is enabled
+        if decision and self.storage_enabled and self.storage_service:
+            self._store_ai_cycle_async(decision, processed_video, processing_time)
+        
+        # Send AI response and actions to dashboard using unified message bus
+        if decision:
             # Extract response text and reasoning
             response_text = decision.get('text', '')
-            reasoning = None  # Could extract from response if available
+            reasoning = decision.get('reasoning')  # Extract reasoning if available
             
             # TIMELINE EVENT 7: T+6.0s - Game Control sends AI response → dashboard  
             if response_text:
                 timeline_logger = get_timeline_logger("game_control")
                 timeline_logger.log_event(7, f"{processing_time + 6.0:.1f}s", "Game Control sends AI response → dashboard")
-                self._send_dashboard_message_threaded('response', response_text, reasoning, processing_time)
+                
+                # Use message bus to publish response
+                publish_response_message(
+                    text=response_text,
+                    reasoning=reasoning,
+                    processing_time=processing_time,
+                    source="game_control"
+                )
+                self.logger.info(f"📤 Published AI response to message bus: {len(response_text)} chars")
             
             # Extract button information
             button_codes = decision.get('buttons', [])
@@ -267,41 +342,89 @@ class GameControlProcess(PokemonRedController):
             # TIMELINE EVENT 8: T+6.2s - Game Control sends button actions → dashboard
             if button_codes:
                 timeline_logger.log_event(8, f"{processing_time + 6.2:.1f}s", "Game Control sends button actions → dashboard")
-                self._send_dashboard_message_threaded('action', 
-                    [str(code) for code in button_codes], 
-                    [float(d) for d in button_durations], 
-                    button_names
+                
+                # Use message bus to publish action
+                publish_action_message(
+                    buttons=[str(code) for code in button_codes],
+                    durations=[float(d) for d in button_durations],
+                    button_names=button_names,
+                    source="game_control"
                 )
+                self.logger.info(f"📤 Published action to message bus: {len(button_codes)} buttons")
         
         return decision
     
-    def _send_dashboard_message_threaded(self, message_type: str, *args):
-        """Send dashboard message in a separate thread to avoid AsyncIO issues"""
-        if not self.dashboard_enabled or not self.dashboard_ws:
-            return
-        
-        def send_message():
+    # Old dashboard WebSocket methods removed - now using message bus
+    
+    def _store_ai_cycle_async(self, decision: Dict[str, Any], processed_video: Dict[str, Any], processing_time: float):
+        """Store complete AI cycle in SQLite asynchronously."""
+        def store_cycle():
             try:
+                import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
-                if message_type == 'response':
-                    response_text, reasoning, processing_time = args
-                    loop.run_until_complete(self._send_response_to_dashboard(response_text, reasoning, processing_time))
-                elif message_type == 'action':
-                    buttons, durations, button_names = args
-                    loop.run_until_complete(self._send_action_to_dashboard(buttons, durations, button_names))
+                # Prepare decision data
+                decision_data = prepare_decision_data(
+                    llm_response_text=decision.get('text', ''),
+                    llm_reasoning=decision.get('reasoning', ''),
+                    llm_raw_response=decision.get('raw_response', ''),
+                    processing_time_ms=processing_time * 1000,
+                    game_state=getattr(self, 'current_game_state', None).__dict__ if hasattr(self, 'current_game_state') else {},
+                    conversation_context={},  # Could extract from knowledge system
+                    memory_context={},       # Could extract from knowledge system
+                    tutorial_step=None       # Could extract from knowledge system
+                )
+                
+                # Prepare action data
+                button_codes = decision.get('buttons', [])
+                button_durations = decision.get('durations', [])
+                button_names = []
+                button_code_to_name = {0: 'A', 1: 'B', 2: 'SELECT', 3: 'START', 4: 'RIGHT', 5: 'LEFT', 6: 'UP', 7: 'DOWN'}
+                for code in button_codes:
+                    button_names.append(button_code_to_name.get(code, f'BUTTON_{code}'))
+                
+                action_data = prepare_action_data(
+                    button_codes=button_codes,
+                    button_names=button_names,
+                    button_durations=button_durations,
+                    execution_time_ms=None,  # Will be updated when action executes
+                    success=True
+                )
+                
+                # Store complete AI cycle
+                decision_id, action_id, gif_id = loop.run_until_complete(
+                    self.storage_service.record_ai_cycle(decision_data, action_data)
+                )
+                
+                # Store GIF separately if available
+                gif_image = processed_video.get('gif_image')
+                if gif_image and decision_id:
+                    frame_count = processed_video.get('frame_count', 0)
+                    duration = processed_video.get('duration', 0.0)
                     
+                    gif_id = loop.run_until_complete(
+                        self.storage_service.store_gif_from_pil(
+                            decision_id=decision_id,
+                            gif_image=gif_image,
+                            frame_count=frame_count,
+                            duration=duration
+                        )
+                    )
+                
+                self.logger.debug(f"🗃️ Stored AI cycle: decision={decision_id[:8]}, action={action_id[:8]}, gif={gif_id[:8] if gif_id else 'none'}")
+                
             except Exception as e:
-                self.logger.error(f"❌ Failed to send {message_type} to dashboard: {e}")
+                self.logger.error(f"❌ Failed to store AI cycle: {e}")
             finally:
                 try:
                     loop.close()
                 except:
                     pass
         
-        dashboard_thread = threading.Thread(target=send_message, daemon=True)
-        dashboard_thread.start()
+        # Run storage in background thread
+        storage_thread = threading.Thread(target=store_cycle, daemon=True)
+        storage_thread.start()
     
     def stop(self):
         """Stop the game control process."""
@@ -452,7 +575,7 @@ class GameControlProcess(PokemonRedController):
             # Schedule action completion time tracking
             self._schedule_action_completion_tracking(action_duration_seconds)
             
-            print(f"🎮 DEBUG: Action duration: {action_duration_seconds:.2f}s, next GIF in {action_duration_seconds + self.action_delay_seconds:.2f}s")
+            self.logger.debug(f"🎮 Action duration: {action_duration_seconds:.2f}s, next GIF in {action_duration_seconds + self.action_delay_seconds:.2f}s")
         else:
             # No decision, just acknowledge
             self._send_button_decision(client_socket, decision)
@@ -462,7 +585,7 @@ class GameControlProcess(PokemonRedController):
         def track_action_completion():
             time.sleep(action_duration_seconds)
             self.last_action_complete_time = time.time()
-            print(f"🎮 DEBUG: Action completed at T={self.last_action_complete_time:.2f}, next GIF available in {self.action_delay_seconds}s")
+            self.logger.debug(f"🎮 Action completed at T={self.last_action_complete_time:.2f}, next GIF available in {self.action_delay_seconds}s")
         
         completion_thread = threading.Thread(target=track_action_completion, daemon=True)
         completion_thread.start()
@@ -470,7 +593,7 @@ class GameControlProcess(PokemonRedController):
     def _handle_state_message(self, client_socket, content):
         """Override state message handling for dual-process architecture with on-demand timing."""
         self.logger.game_state("Received game state for dual-process mode")
-        print(f"🎮 DEBUG: Received state message with {len(content)} parts: {content}")
+        self.logger.debug(f"🎮 Received state message with {len(content)} parts: {content}")
         
         if len(content) >= 4:
             # Parse game state using game engine
@@ -478,32 +601,30 @@ class GameControlProcess(PokemonRedController):
             self.current_game_state = self.game_engine.parse_game_state(state_data)
             
             self.logger.debug(f"Game State: {self.current_game_state}")
-            print(f"🎮 DEBUG: Parsed game state - Map: {self.current_game_state.map_id}, Pos: ({self.current_game_state.player_x}, {self.current_game_state.player_y})")
+            self.logger.debug(f"🎮 Parsed game state - Map: {self.current_game_state.map_id}, Pos: ({self.current_game_state.player_x}, {self.current_game_state.player_y})")
             
             # Check if this is the right time to request a GIF
             current_time = time.time()
             should_request_gif = self._should_request_gif_now(current_time)
             
             if should_request_gif:
-                print("🎮 DEBUG: Making on-demand decision from video process...")
+                self.logger.debug("🎮 Making on-demand decision from video process...")
                 decision = self._make_decision_from_video_process()
                 if decision:
-                    print(f"🎮 DEBUG: Decision received, sending buttons: {decision.get('buttons', [])}")
+                    self.logger.debug(f"🎮 Decision received, sending buttons: {decision.get('buttons', [])}")
                     self._send_button_decision_with_timing(client_socket, decision, current_time)
                 else:
                     # Fallback if video process fails
-                    print("🎮 DEBUG: Video process failed, using fallback decision")
                     self.logger.warning("⚠️ Video process failed, using fallback decision")
                     decision = self.process_video_sequence(1.0)
                     self._send_button_decision_with_timing(client_socket, decision, current_time)
             else:
                 # Not time yet, just acknowledge the state
                 delay_remaining = self._get_remaining_delay(current_time)
-                print(f"🎮 DEBUG: Waiting {delay_remaining:.2f}s more before next GIF request")
+                self.logger.debug(f"🎮 Waiting {delay_remaining:.2f}s more before next GIF request")
                 # Send a simple acknowledgment or wait
                 time.sleep(0.1)  # Small delay before next state check
         else:
-            print(f"🎮 DEBUG: State message too short: {len(content)} parts")
             self.logger.error(f"State message too short: {len(content)} parts")
     
     def _handle_enhanced_screenshot_with_state(self, client_socket, content):
@@ -586,138 +707,7 @@ class GameControlProcess(PokemonRedController):
             except Exception as e:
                 self.logger.error(f"Failed to request another screenshot: {e}")
     
-    def _start_dashboard_connection(self):
-        """Start dashboard connection in a new event loop"""
-        try:
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._connect_to_dashboard())
-        except Exception as e:
-            self.logger.warning(f"⚠️ Dashboard connection failed: {e}")
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
-    
-    async def _connect_to_dashboard(self):
-        """Connect to dashboard WebSocket for real-time response streaming"""
-        dashboard_ws_url = f"ws://localhost:{self.dashboard_port}/ws"
-        max_retries = 5
-        retry_delay = 3.0
-        
-        for attempt in range(max_retries):
-            try:
-                self.logger.info(f"🔗 Connecting to dashboard WebSocket: {dashboard_ws_url} (attempt {attempt + 1})")
-                self.dashboard_ws = await websockets.connect(dashboard_ws_url)
-                self.logger.success(f"✅ Connected to dashboard WebSocket, state: {self.dashboard_ws.state}")
-                
-                # Start background task to maintain connection
-                asyncio.create_task(self._dashboard_ws_handler())
-                break
-                
-            except Exception as e:
-                self.logger.warning(f"⚠️ Failed to connect to dashboard (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
-                else:
-                    self.logger.error("❌ Could not connect to dashboard, continuing without dashboard integration")
-                    self.dashboard_enabled = False
-    
-    async def _dashboard_ws_handler(self):
-        """Handle dashboard WebSocket connection"""
-        try:
-            # Keep connection alive and handle any incoming messages
-            async for message in self.dashboard_ws:
-                # Dashboard may send ping/status requests
-                data = json.loads(message)
-                if data.get('type') == 'ping':
-                    await self.dashboard_ws.send(json.dumps({'type': 'pong', 'timestamp': time.time()}))
-                    
-        except websockets.exceptions.ConnectionClosed:
-            self.logger.info("📡 Dashboard WebSocket connection closed")
-            self.dashboard_ws = None
-        except Exception as e:
-            self.logger.error(f"❌ Dashboard WebSocket error: {e}")
-            self.dashboard_ws = None
-    
-    async def _send_response_to_dashboard(self, response_text: str, reasoning: str = None, processing_time: float = None):
-        """Send AI response to dashboard via WebSocket"""
-        if not self.dashboard_ws or not self.dashboard_enabled:
-            return
-        
-        try:
-            message = {
-                "type": "chat_message",
-                "timestamp": time.time(),
-                "data": {
-                    "message": {
-                        "id": f"response_{int(time.time() * 1000)}",
-                        "type": "response",
-                        "timestamp": time.time(),
-                        "sequence": int(time.time() % 10000),
-                        "content": {
-                            "response": {
-                                "text": response_text,
-                                "reasoning": reasoning,
-                                "confidence": 0.95,
-                                "processing_time": processing_time or 0.0
-                            }
-                        }
-                    }
-                }
-            }
-            
-            await self.dashboard_ws.send(json.dumps(message))
-            self.logger.debug(f"📤 Sent AI response to dashboard: {len(response_text)} chars")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to send response to dashboard: {e}")
-            # Try to reconnect
-            self.dashboard_ws = None
-            if self.dashboard_enabled:
-                # Restart dashboard connection in a separate thread
-                dashboard_thread = threading.Thread(target=self._start_dashboard_connection, daemon=True)
-                dashboard_thread.start()
-    
-    async def _send_action_to_dashboard(self, buttons: List[str], durations: List[float], button_names: List[str] = None):
-        """Send action buttons to dashboard via WebSocket"""
-        if not self.dashboard_ws or not self.dashboard_enabled:
-            return
-        
-        try:
-            message = {
-                "type": "chat_message",
-                "timestamp": time.time(),
-                "data": {
-                    "message": {
-                        "id": f"action_{int(time.time() * 1000)}",
-                        "type": "action",
-                        "timestamp": time.time(),
-                        "sequence": int(time.time() % 10000),
-                        "content": {
-                            "action": {
-                                "buttons": buttons,
-                                "button_names": button_names or [],
-                                "durations": durations
-                            }
-                        }
-                    }
-                }
-            }
-            
-            await self.dashboard_ws.send(json.dumps(message))
-            self.logger.debug(f"📤 Sent actions to dashboard: {len(buttons)} buttons")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to send actions to dashboard: {e}")
-            # Try to reconnect
-            self.dashboard_ws = None
-            if self.dashboard_enabled:
-                # Restart dashboard connection in a separate thread
-                dashboard_thread = threading.Thread(target=self._start_dashboard_connection, daemon=True)
-                dashboard_thread.start()
+    # Old WebSocket dashboard methods removed - now using message bus for all communication
 
 
 def main():

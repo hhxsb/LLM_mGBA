@@ -14,15 +14,12 @@ const App: React.FC = () => {
     systemStatus, 
     processLogs,
     connectionError,
-    clearChat 
+    clearChat,
+    exportMessages
   } = useWebSocket();
 
   // Debug: Log messages prop being passed to ChatInterface
-  console.log('🏠 App component - messages prop:', {
-    messageCount: messages.length,
-    messageTypes: messages.map(m => m?.type),
-    messageIds: messages.map(m => m?.id)
-  });
+  console.log('🏠 App rendering with', messages.length, 'messages');
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -89,15 +86,24 @@ const App: React.FC = () => {
                 {isConnected ? 'Connected' : 'Disconnected'}
               </div>
 
-              {/* Clear Chat Button */}
+              {/* Clear Chat and Export Buttons */}
               {activeTab === 'dashboard' && (
-                <button
-                  onClick={clearChat}
-                  disabled={!isConnected || messages.length === 0}
-                  className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  🗑️ Clear Chat
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={exportMessages}
+                    disabled={messages.length === 0}
+                    className="px-3 py-1 text-sm bg-blue-200 text-blue-700 rounded hover:bg-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    📥 Export
+                  </button>
+                  <button
+                    onClick={clearChat}
+                    disabled={messages.length === 0}
+                    className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    🗑️ Clear Chat
+                  </button>
+                </div>
               )}
             </div>
           </div>

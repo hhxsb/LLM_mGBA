@@ -114,6 +114,12 @@ data/screenshots/
 data/videos/
 data/knowledge_graph.json
 
+# Knowledge Base Backup and Deprecated Files
+data/knowledge_graph.json.backup*
+data/knowledge_graph.json.deprecated
+*.backup_*
+*.deprecated
+
 # Temporary Files
 *.tmp
 *.temp

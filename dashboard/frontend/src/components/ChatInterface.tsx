@@ -11,10 +11,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    console.log('🔍 ChatInterface messages updated:', {
-      messageCount: messages.length,
-      messages: messages.map(m => ({ id: m?.id, type: m?.type, hasContent: !!m?.content }))
-    });
+    console.log('🖼️ Chat updated:', messages.length, 'messages');
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -219,29 +216,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
 
   const renderMessage = (message: ChatMessage) => {
     if (!message || !message.type || !message.content) {
-      console.error('❌ Invalid message in renderMessage:', message);
+      console.error('❌ Invalid message:', message);
       return null;
     }
     
-    console.log('📸 FRONTEND: Rendering message in ChatInterface component');
-    console.log('🎨 Rendering message:', { id: message.id, type: message.type, hasContent: !!message.content });
-    
     switch (message.type) {
       case 'gif':
-        console.log('📸 FRONTEND: Displaying GIF message in UI');
-        console.log('🎬 Rendering GIF message:', message.id);
         return renderGifMessage(message);
       case 'response':
-        console.log('📸 FRONTEND: Displaying AI response message in UI');
-        console.log('🤖 Rendering response message:', message.id);
         return renderResponseMessage(message);
       case 'action':
-        console.log('📸 FRONTEND: Displaying action message in UI');
-        console.log('🎯 Rendering action message:', message.id);
         return renderActionMessage(message);
       case 'system':
-        console.log('📸 FRONTEND: Displaying system message in UI');
-        console.log('ℹ️ Rendering system message:', message.id);
         return renderSystemMessage(message);
       default:
         console.log('❓ Unknown message type:', message.type);
@@ -262,10 +248,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
         {(() => {
-          console.log('🖼️ ChatInterface render - total messages:', messages.length);
-          
           if (messages.length === 0) {
-            console.log('📋 No messages to display, showing empty state');
             return (
               <div className="text-center text-gray-500 mt-8">
                 <div className="text-6xl mb-4">🎮</div>
@@ -280,20 +263,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
           }
           
           const filteredMessages = messages.filter((message) => message && message.id && message.type);
-          console.log('🔍 Filtered messages for rendering:', {
-            original: messages.length,
-            filtered: filteredMessages.length,
-            filtered_ids: filteredMessages.map(m => m.id)
-          });
           
-          return filteredMessages.map((message) => {
-            console.log('🎭 Mapping message for render:', message.id);
-            return (
-              <React.Fragment key={message.id}>
-                {renderMessage(message)}
-              </React.Fragment>
-            );
-          });
+          return filteredMessages.map((message) => (
+            <React.Fragment key={message.id}>
+              {renderMessage(message)}
+            </React.Fragment>
+          ));
         })()}
         <div ref={chatEndRef} />
       </div>

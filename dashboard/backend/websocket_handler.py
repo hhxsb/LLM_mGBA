@@ -7,7 +7,6 @@ import time
 import logging
 from typing import Dict, List, Set, Optional
 from fastapi import WebSocket, WebSocketDisconnect
-from collections import deque
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
@@ -15,6 +14,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from models import ChatMessage, WebSocketMessage, KnowledgeUpdate, SystemStatus
 from core.logging_config import get_logger, get_timeline_logger
+from core.message_bus import message_bus
+from core.message_types import UnifiedMessage, create_websocket_message
 
 logger = get_logger("dashboard.websocket")
 timeline_logger = get_timeline_logger("dashboard")
@@ -24,8 +25,6 @@ class ConnectionManager:
     
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
-        self.message_history: deque = deque(maxlen=100)  # Keep last 100 messages
-        self.message_sequence = 0
         self.start_time = time.time()
     
     async def connect(self, websocket: WebSocket):
@@ -34,8 +33,12 @@ class ConnectionManager:
         self.active_connections.add(websocket)
         logger.info(f"📡 New WebSocket connection. Total: {len(self.active_connections)}")
         
-        # Send recent message history to new connection
-        await self._send_message_history(websocket)
+        # Send connection established confirmation
+        await websocket.send_text(json.dumps({
+            "type": "connection_established",
+            "timestamp": time.time(),
+            "data": {"message": "WebSocket connection ready"}
+        }))
     
     async def disconnect(self, websocket: WebSocket):
         """Remove a WebSocket connection"""
@@ -43,7 +46,7 @@ class ConnectionManager:
         logger.info(f"📡 WebSocket disconnected. Total: {len(self.active_connections)}")
     
     async def broadcast_message(self, message: Dict):
-        """Broadcast a message to all connected clients"""
+        """Broadcast a message to all connected clients (fire-and-forget)"""
         if not self.active_connections:
             return
         
@@ -56,9 +59,6 @@ class ConnectionManager:
         
         message_json = ws_message.json()
         logger.debug(f"📤 Broadcasting: {message.get('type', 'unknown')}")
-        
-        # Store in history
-        self.message_history.append(ws_message.dict())
         
         # Send to all connections (use copy to avoid iteration issues)
         disconnected = set()
@@ -81,17 +81,13 @@ class ConnectionManager:
             await self.disconnect(connection)
     
     async def broadcast_chat_message(self, chat_message: ChatMessage):
-        """Broadcast a chat message"""
-        self.message_sequence += 1
-        chat_message.sequence = self.message_sequence
-        
+        """Broadcast a chat message (fire-and-forget)"""
         logger.info(f"🔍 Broadcasting chat message: type={chat_message.type}, id={chat_message.id}, connections={len(self.active_connections)}")
         
         await self.broadcast_message({
             "type": "chat_message",
             "data": {
-                "message": chat_message.dict(),
-                "sequence": self.message_sequence
+                "message": chat_message.dict()
             }
         })
     
@@ -127,27 +123,6 @@ class ConnectionManager:
             "data": log_data
         })
     
-    async def _send_message_history(self, websocket: WebSocket):
-        """Send recent message history to a newly connected client"""
-        if not self.message_history:
-            return
-        
-        try:
-            # Send a batch of recent messages
-            history_message = WebSocketMessage(
-                type="message_history",
-                timestamp=time.time(),
-                data={
-                    "messages": list(self.message_history),
-                    "total_count": len(self.message_history)
-                }
-            )
-            
-            await websocket.send_text(history_message.json())
-            logger.info(f"📤 Sent {len(self.message_history)} historical messages to new client")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to send message history: {e}")
     
     def get_connection_count(self) -> int:
         """Get number of active connections"""
@@ -165,6 +140,10 @@ class DashboardWebSocketHandler:
         self.gif_retention_time = 30 * 60  # 30 minutes in seconds
         self.gif_cache: Dict[str, Dict] = {}
         self.last_cleanup = time.time()
+        
+        # Subscribe to message bus for unified messages
+        message_bus.subscribe(self._handle_unified_message, is_async=True)
+        logger.info("📡 Subscribed to message bus for unified messages")
     
     async def handle_websocket(self, websocket: WebSocket):
         """Handle a WebSocket connection lifecycle"""
@@ -190,51 +169,60 @@ class DashboardWebSocketHandler:
             logger.warning(f"⚠️ WebSocket connection lost: {e}")
             await self.connection_manager.disconnect(websocket)
     
+    async def _handle_unified_message(self, message: UnifiedMessage):
+        """Handle unified message from message bus and broadcast to all clients"""
+        try:
+            logger.debug(f"🚌 Received unified message from bus: {message.type} - {message.id}")
+            
+            # Convert to WebSocket message format and broadcast
+            ws_message = create_websocket_message(message)
+            await self.connection_manager.broadcast_message(ws_message)
+            
+            # Log successful broadcast with structured format
+            client_count = self.connection_manager.get_connection_count()
+            logger.info(f"📤 BROADCAST | type={message.type} | id={message.id[:8]} | clients={client_count}")
+            
+            # Handle message-specific processing
+            if message.type == "gif":
+                # Cache GIF data for retention policy
+                gif_content = message.content.get("gif", {})
+                if gif_content.get("data"):
+                    self.gif_cache[message.id] = {
+                        "data": gif_content["data"],
+                        "timestamp": message.timestamp
+                    }
+                    # Cleanup old GIFs
+                    await self._cleanup_old_gifs()
+                    
+        except Exception as e:
+            logger.error(f"❌ Error handling unified message: {e}")
+    
     async def _handle_client_message(self, websocket: WebSocket, data: str):
         """Handle incoming messages from clients"""
         try:
             message = json.loads(data)
             message_type = message.get("type")
-            logger.info(f"🔍 Received WebSocket message: type={message_type}, data_length={len(data)}")
+            logger.debug(f"🔍 CLIENT MSG | type={message_type} | size={len(data)}")
             
-            # Enhanced logging for debugging real mode
-            if message_type == "chat_message":
-                chat_data = message.get("data", {}).get("message", {})
-                logger.info(f"🔍 CHAT MESSAGE DETAILS: id={chat_data.get('id')}, type={chat_data.get('type')}, has_content={bool(chat_data.get('content'))}")
-            else:
-                logger.debug(f"🔍 Non-chat message: {message_type}")
-            
+            # Simplified client message handling - most messages now come via message bus
             if message_type == "ping":
                 # Respond to ping
                 await websocket.send_text(json.dumps({"type": "pong", "timestamp": time.time()}))
             
             elif message_type == "request_status":
                 # Send current system status
-                # This would be implemented when we have access to process manager
                 await websocket.send_text(json.dumps({
                     "type": "status_response",
                     "data": {"message": "Status request received"}
                 }))
             
-            elif message_type == "gif_message":
-                # Handle GIF message from video capture process
-                await self._handle_gif_message(message)
-            
-            elif message_type == "response_message":
-                # Handle AI response message from game control process
-                await self._handle_response_message(message)
-            
-            elif message_type == "action_message":
-                # Handle action message from game control process
-                await self._handle_action_message(message)
-            
-            elif message_type == "chat_message":
-                # Handle chat message from AI processes
-                await self._handle_chat_message(message)
-            
             elif message_type == "pong":
                 # Handle pong response from client - connection is alive
                 logger.debug(f"📡 Received pong from client - connection alive")
+            
+            elif message_type in ["gif_message", "response_message", "action_message", "chat_message"]:
+                # These messages now come through message bus, log for debugging
+                logger.warning(f"ℹ️ Legacy message type {message_type} received - should come via message bus")
             
             else:
                 logger.warning(f"⚠️ Unknown client message type: {message_type}")
@@ -244,104 +232,7 @@ class DashboardWebSocketHandler:
         except Exception as e:
             logger.error(f"❌ Error handling client message: {e}")
     
-    async def _handle_gif_message(self, message: Dict):
-        """Handle GIF message from video capture process"""
-        try:
-            data = message.get("data", {})
-            gif_data = data.get("gif_data")
-            metadata = data.get("metadata", {})
-            
-            if gif_data and metadata:
-                # Send GIF to all connected dashboard clients
-                await self.send_gif_message(gif_data, metadata)
-                logger.info(f"📤 Forwarded GIF to dashboard: {metadata.get('frameCount', 0)} frames")
-            
-        except Exception as e:
-            logger.error(f"❌ Error handling GIF message: {e}")
-    
-    async def _handle_response_message(self, message: Dict):
-        """Handle AI response message from game control process"""
-        try:
-            data = message.get("data", {})
-            response_text = data.get("response_text", "")
-            reasoning = data.get("reasoning")
-            processing_time = data.get("processing_time")
-            
-            if response_text:
-                # Send response to all connected dashboard clients
-                await self.send_response_message(response_text, reasoning, processing_time)
-                logger.info(f"📤 Forwarded AI response to dashboard: {len(response_text)} chars")
-            
-        except Exception as e:
-            logger.error(f"❌ Error handling response message: {e}")
-    
-    async def _handle_action_message(self, message: Dict):
-        """Handle action message from game control process"""
-        try:
-            data = message.get("data", {})
-            buttons = data.get("buttons", [])
-            durations = data.get("durations", [])
-            button_names = data.get("button_names", [])
-            
-            if buttons:
-                # Send actions to all connected dashboard clients
-                await self.send_action_message(buttons, durations, button_names)
-                logger.info(f"📤 Forwarded actions to dashboard: {len(buttons)} buttons")
-            
-        except Exception as e:
-            logger.error(f"❌ Error handling action message: {e}")
-    
-    async def _handle_chat_message(self, message: Dict):
-        """Handle chat message from AI processes"""
-        try:
-            data = message.get("data", {})
-            chat_data = data.get("message", {})
-            
-            logger.info(f"🔍 Processing chat message: data_keys={list(data.keys())}, chat_data_keys={list(chat_data.keys())}")
-            
-            if not chat_data:
-                logger.warning("⚠️ Empty chat message data")
-                return
-            
-            message_type = chat_data.get("type")
-            content = chat_data.get("content", {})
-            
-            logger.info(f"🔍 Chat message details: type={message_type}, content_keys={list(content.keys())}")
-            
-            if message_type == "gif" and "gif" in content:
-                # Handle GIF message
-                gif_info = content["gif"]
-                await self.send_gif_message(
-                    gif_info.get("data", ""),
-                    gif_info.get("metadata", {})
-                )
-                logger.info("📤 Processed chat GIF message")
-                
-            elif message_type == "response" and "response" in content:
-                # Handle AI response message
-                response_info = content["response"]
-                await self.send_response_message(
-                    response_info.get("text", ""),
-                    response_info.get("reasoning"),
-                    response_info.get("processing_time")
-                )
-                logger.info("📤 Processed chat response message")
-                
-            elif message_type == "action" and "action" in content:
-                # Handle action message
-                action_info = content["action"]
-                await self.send_action_message(
-                    action_info.get("buttons", []),
-                    action_info.get("durations", []),
-                    action_info.get("button_names", [])
-                )
-                logger.info("📤 Processed chat action message")
-                
-            else:
-                logger.warning(f"⚠️ Unknown chat message type: {message_type}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error handling chat message: {e}")
+    # Old message handling methods removed - now using unified message bus handler
     
     async def send_gif_message(self, gif_data: str, metadata: Dict):
         """Send a GIF message to all clients"""
