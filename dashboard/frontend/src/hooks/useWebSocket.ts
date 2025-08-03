@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface ChatMessage {
   id: string;
-  type: 'gif' | 'response' | 'action' | 'system';
+  type: 'gif' | 'screenshots' | 'response' | 'action' | 'system';
   timestamp: number;
   sequence: number;
   content: {
@@ -15,6 +15,16 @@ export interface ChatMessage {
         timestamp: number;
       };
       available: boolean;
+    };
+    screenshots?: {
+      before?: string;  // base64 image data
+      after?: string;   // base64 image data
+      metadata: {
+        width: number;
+        height: number;
+        timestamp: number;
+        source: string;
+      };
     };
     response?: {
       text: string;
@@ -77,8 +87,8 @@ export interface UseWebSocketReturn {
 const getWebSocketURL = () => {
   if (window.location.host.includes(':5173')) {
     // Development mode: frontend is on 5173, need to find dashboard backend port
-    // Try ports in order: 3001 (mock mode), 3000 (default)
-    return ['ws://localhost:3001/ws', 'ws://localhost:3000/ws'];
+    // Try ports in order: 3001 ( deprecated mock mode), just use 3000 (default)
+    return ['ws://localhost:3000/ws'];
   } else {
     // Production: same host
     return [`ws://${window.location.host}/ws`];

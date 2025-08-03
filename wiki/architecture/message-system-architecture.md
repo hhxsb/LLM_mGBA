@@ -275,7 +275,7 @@ export const useWebSocket = (): UseWebSocketReturn => {
 ```
 
 **Connection Management**:
-- Multi-port fallback: tries ports 3001, 3000
+- Multi-port fallback: tries ports 3001, 3000 (Update 7/23/2025, deprecating 3001 in code so we don't try that anymore)
 - Automatic reconnection with exponential backoff
 - Ping/pong keepalive mechanism
 - Historical message retrieval for new connections

@@ -14,19 +14,19 @@ class PokemonAILogger:
     
     _configured = False
     _debug_mode = False
+    _current_process_name = "main"
     
     @classmethod
     def configure(cls, debug: bool = False, process_name: str = "main") -> None:
         """Configure logging for the entire project."""
-        if cls._configured:
+        # Allow reconfiguration if process name changes
+        if cls._configured and cls._current_process_name == process_name:
             return
             
         cls._debug_mode = debug
+        cls._current_process_name = process_name
         
-        # Check environment variable for debug mode (for child processes)
-        if os.getenv('POKEMON_AI_DEBUG') == '1':
-            cls._debug_mode = True
-            debug = True
+        # Debug mode is now set directly via parameter, no environment variable dependency
         
         # Set up root logger
         root_logger = logging.getLogger('pokemon_ai')
@@ -117,13 +117,9 @@ class PokemonAILogger:
     
     @classmethod
     def set_debug_env_var(cls) -> None:
-        """Set environment variable for child processes to inherit debug mode."""
-        if cls._debug_mode:
-            os.environ['POKEMON_AI_DEBUG'] = '1'
-            print(f"🔧 Set POKEMON_AI_DEBUG=1 for child processes (debug_mode={cls._debug_mode})")
-        else:
-            os.environ.pop('POKEMON_AI_DEBUG', None)
-            print(f"🔧 Removed POKEMON_AI_DEBUG environment variable (debug_mode={cls._debug_mode})")
+        """DEPRECATED: Environment variable approach replaced with direct parameter passing."""
+        # This method is kept for backward compatibility but no longer used
+        pass
 
 
 def get_logger(name: str) -> logging.Logger:

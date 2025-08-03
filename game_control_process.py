@@ -23,7 +23,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
 from games.pokemon_red.controller import PokemonRedController
 from core.logging_config import configure_logging, get_logger, get_timeline_logger
 from core.storage_service import StorageService, prepare_decision_data, prepare_action_data
-from core.message_bus import message_bus, publish_response_message, publish_action_message
+from core.message_bus import message_bus, publish_response_message, publish_action_message, publish_screenshots_message
 from core.message_types import UnifiedMessage
 import PIL.Image
 
@@ -147,16 +147,22 @@ class GameControlProcess(PokemonRedController):
     """Game control process that uses video capture process for visual input."""
     
     def __init__(self, config: Dict[str, Any]):
-        # Initialize parent controller but override video capture behavior
+        # Initialize parent controller but override video capture behavior based on config
         super().__init__(config)
         
-        # Video process client
+        # Check if dual process mode is enabled
         dual_process_config = config.get('dual_process_mode', {})
-        video_port = dual_process_config.get('video_capture_port', 8889)
-        self.video_client = VideoProcessClient(port=video_port, config=config)
+        self.dual_process_enabled = dual_process_config.get('enabled', True)
         
-        # Override capture system behavior
-        self.use_external_video_process = True
+        if self.dual_process_enabled:
+            # Video process client for dual-process mode
+            video_port = dual_process_config.get('video_capture_port', 8889)
+            self.video_client = VideoProcessClient(port=video_port, config=config)
+            self.use_external_video_process = True
+        else:
+            # Single process mode - use built-in screenshot capture
+            self.video_client = None
+            self.use_external_video_process = False
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -171,18 +177,26 @@ class GameControlProcess(PokemonRedController):
         self.dashboard_config = config.get('dashboard', {})
         self.dashboard_enabled = self.dashboard_config.get('enabled', False)
         
-        # Storage service for SQLite persistence
+        # Storage service for SQLite persistence - TEMPORARILY DISABLED FOR DEBUGGING
         self.storage_service = None
-        self.storage_enabled = config.get('storage', {}).get('enabled', True)
+        self.storage_enabled = False  # Temporarily disabled to isolate hanging issue
+        # self.storage_enabled = config.get('storage', {}).get('enabled', True)
         if self.storage_enabled:
             self.storage_service = StorageService(config)
             self.logger.info("🗃️ SQLite storage service initialized")
+        else:
+            self.logger.info("🗃️ SQLite storage service DISABLED for debugging")
         
         self.logger.section("Game Control Process Initialized")
-        self.logger.info(f"   Video process port: {video_port}")
+        if self.dual_process_enabled:
+            video_port = dual_process_config.get('video_capture_port', 8889)
+            self.logger.info(f"   Video process port: {video_port}")
+            self.logger.info(f"   Dual-process mode: ENABLED")
+            self.logger.info(f"   On-demand GIF requests: {self.action_delay_seconds}s after action completion")
+        else:
+            self.logger.info(f"   Dual-process mode: DISABLED")
+            self.logger.info(f"   Using built-in screenshot capture (2-screenshot approach)")
         self.logger.info(f"   Game: {config.get('game', 'Unknown')}")
-        self.logger.info(f"   Dual-process mode: ENABLED")
-        self.logger.info(f"   On-demand GIF requests: {self.action_delay_seconds}s after action completion")
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
@@ -193,17 +207,20 @@ class GameControlProcess(PokemonRedController):
         """Start the game control process."""
         self.logger.section("Starting Game Control Process")
         
-        # Check video process connection
-        self.logger.debug("🔗 Connecting to video capture process...")
-        status = self.video_client.get_status()
-        if not status:
-            self.logger.error("Cannot connect to video capture process")
-            self.logger.error("Make sure video_capture_process.py is running first")
-            return False
-        
-        buffer_frames = status.get('buffer_frames', 0)
-        buffer_duration = status.get('buffer_duration', 0.0)
-        self.logger.success(f"Connected to video process: {buffer_frames} frames ({buffer_duration:.1f}s) in buffer")
+        # Check video process connection only if dual process mode is enabled
+        if self.dual_process_enabled:
+            self.logger.debug("🔗 Connecting to video capture process...")
+            status = self.video_client.get_status()
+            if not status:
+                self.logger.error("Cannot connect to video capture process")
+                self.logger.error("Make sure video_capture_process.py is running first")
+                return False
+            
+            buffer_frames = status.get('buffer_frames', 0)
+            buffer_duration = status.get('buffer_duration', 0.0)
+            self.logger.success(f"Connected to video process: {buffer_frames} frames ({buffer_duration:.1f}s) in buffer")
+        else:
+            self.logger.info("🔗 Single process mode - using built-in screenshot capture")
         
         # Initialize storage service if enabled
         if self.storage_enabled and self.storage_service:
@@ -444,10 +461,15 @@ class GameControlProcess(PokemonRedController):
                     pass
     
     def _handle_continuous_recording_workflow(self, client_socket):
-        """Override to use external video process instead of internal recording."""
-        # Always make decision using current video from external process
-        decision = self._make_decision_from_video_process()
-        return decision
+        """Override to use external video process or built-in capture based on config."""
+        if self.dual_process_enabled:
+            # Use external video process for GIF-based decisions
+            decision = self._make_decision_from_video_process()
+            return decision
+        else:
+            # Use built-in screenshot capture for 2-screenshot approach
+            decision = self.process_video_sequence(1.0)  # Use 1 second capture
+            return decision
     
     def _make_decision_from_video_process(self):
         """Make AI decision using GIF from external video process."""
@@ -603,27 +625,37 @@ class GameControlProcess(PokemonRedController):
             self.logger.debug(f"Game State: {self.current_game_state}")
             self.logger.debug(f"🎮 Parsed game state - Map: {self.current_game_state.map_id}, Pos: ({self.current_game_state.player_x}, {self.current_game_state.player_y})")
             
-            # Check if this is the right time to request a GIF
-            current_time = time.time()
-            should_request_gif = self._should_request_gif_now(current_time)
-            
-            if should_request_gif:
-                self.logger.debug("🎮 Making on-demand decision from video process...")
-                decision = self._make_decision_from_video_process()
+            if self.dual_process_enabled:
+                # Check if this is the right time to request a GIF for dual process mode
+                current_time = time.time()
+                should_request_gif = self._should_request_gif_now(current_time)
+                
+                if should_request_gif:
+                    self.logger.debug("🎮 Making on-demand decision from video process...")
+                    decision = self._make_decision_from_video_process()
+                    if decision:
+                        self.logger.debug(f"🎮 Decision received, sending buttons: {decision.get('buttons', [])}")
+                        self._send_button_decision_with_timing(client_socket, decision, current_time)
+                    else:
+                        # Fallback if video process fails
+                        self.logger.warning("⚠️ Video process failed, using fallback decision")
+                        decision = self.process_video_sequence(1.0)
+                        self._send_button_decision_with_timing(client_socket, decision, current_time)
+                else:
+                    # Not time yet, just acknowledge the state
+                    delay_remaining = self._get_remaining_delay(current_time)
+                    self.logger.debug(f"🎮 Waiting {delay_remaining:.2f}s more before next GIF request")
+                    # Send a simple acknowledgment or wait
+                    time.sleep(0.1)  # Small delay before next state check
+            else:
+                # Single process mode - use built-in screenshot capture immediately
+                self.logger.debug("🎮 Making decision using built-in screenshot capture...")
+                decision = self.process_video_sequence(1.0)
                 if decision:
                     self.logger.debug(f"🎮 Decision received, sending buttons: {decision.get('buttons', [])}")
-                    self._send_button_decision_with_timing(client_socket, decision, current_time)
+                    self._send_button_decision(client_socket, decision)
                 else:
-                    # Fallback if video process fails
-                    self.logger.warning("⚠️ Video process failed, using fallback decision")
-                    decision = self.process_video_sequence(1.0)
-                    self._send_button_decision_with_timing(client_socket, decision, current_time)
-            else:
-                # Not time yet, just acknowledge the state
-                delay_remaining = self._get_remaining_delay(current_time)
-                self.logger.debug(f"🎮 Waiting {delay_remaining:.2f}s more before next GIF request")
-                # Send a simple acknowledgment or wait
-                time.sleep(0.1)  # Small delay before next state check
+                    self.logger.warning("⚠️ No decision made")
         else:
             self.logger.error(f"State message too short: {len(content)} parts")
     
@@ -644,20 +676,34 @@ class GameControlProcess(PokemonRedController):
             self.logger.debug(f"   Screenshot: {screenshot_path}")
             self.logger.debug(f"   Previous screenshot: {previous_screenshot_path}")
             
-            # Always use external video process for decisions in dual-process mode
-            self.logger.debug("🎥 Using dual-process video system for enhanced screenshot")
-            decision = self._make_decision_from_video_process()
-            if decision:
-                self.logger.debug("✅ Decision received, sending button commands")
-                self._send_button_decision(client_socket, decision)
+            if self.dual_process_enabled:
+                # Use external video process for decisions in dual-process mode
+                self.logger.debug("🎥 Using dual-process video system for enhanced screenshot")
+                decision = self._make_decision_from_video_process()
+                if decision:
+                    self.logger.debug("✅ Decision received, sending button commands")
+                    self._send_button_decision(client_socket, decision)
+                else:
+                    self.logger.warning("⚠️ No decision received from video process")
+                    # Send a simple fallback decision to prevent hanging
+                    self.logger.debug("🔄 Requesting new state from emulator")
+                    try:
+                        client_socket.send(b'request_state\n')
+                    except Exception as e:
+                        self.logger.error(f"Failed to request new state: {e}")
             else:
-                self.logger.warning("⚠️ No decision received from video process")
-                # Send a simple fallback decision to prevent hanging
-                self.logger.debug("🔄 Requesting new state from emulator")
-                try:
-                    client_socket.send(b'request_state\n')
-                except Exception as e:
-                    self.logger.error(f"Failed to request new state: {e}")
+                # Single process mode - use built-in screenshot capture
+                self.logger.debug("🎥 Using built-in screenshot capture for enhanced screenshot")
+                decision = self.process_video_sequence(1.0)
+                if decision:
+                    self.logger.debug("✅ Decision received, sending button commands")
+                    self._send_button_decision(client_socket, decision)
+                else:
+                    self.logger.warning("⚠️ No decision made")
+                    try:
+                        client_socket.send(b'request_state\n')
+                    except Exception as e:
+                        self.logger.error(f"Failed to request new state: {e}")
         else:
             self.logger.error(f"Enhanced screenshot content too short: {len(content)} items")
     
@@ -706,6 +752,142 @@ class GameControlProcess(PokemonRedController):
                 self.logger.debug("📡 Requested new screenshot from emulator")
             except Exception as e:
                 self.logger.error(f"Failed to request another screenshot: {e}")
+    
+    def _make_decision_from_processed_video(self, processed_video):
+        """Override to add dashboard screenshot forwarding in single process mode."""
+        start_time = time.time()
+        
+        self.logger.debug(f"📸 GAME_FLOW: _make_decision_from_processed_video starting...")
+        
+        # Forward screenshots to dashboard if in single process mode
+        if not self.dual_process_enabled:
+            self.logger.debug(f"📸 GAME_FLOW: Forwarding screenshots to dashboard...")
+            self._forward_screenshots_to_dashboard(processed_video)
+            self.logger.debug(f"📸 GAME_FLOW: Screenshot forwarding completed")
+        
+        # Call parent method to get the decision (includes existing dashboard integration)
+        self.logger.debug(f"📸 GAME_FLOW: Calling super()._make_decision_from_processed_video...")
+        decision = super()._make_decision_from_processed_video(processed_video)
+        self.logger.debug(f"📸 GAME_FLOW: Parent method returned, decision: {decision is not None}")
+        
+        self.logger.debug(f"📸 GAME_FLOW: _make_decision_from_processed_video completed")
+        return decision
+    
+    def _forward_screenshots_to_dashboard(self, processed_video):
+        """Forward the screenshots sent to LLM to the dashboard."""
+        try:
+            self.logger.debug(f"📸 SCREENSHOT_FLOW: Starting screenshot forwarding...")
+            import base64
+            from io import BytesIO
+            
+            # Check if we have video segment data with frames
+            self.logger.debug(f"📸 SCREENSHOT_FLOW: Checking video segment...")
+            video_segment = processed_video.get('video_segment')
+            if not video_segment or not hasattr(video_segment, 'frames') or not video_segment.frames:
+                self.logger.debug("📸 No video frames to forward to dashboard")
+                return
+            
+            frames = video_segment.frames
+            self.logger.debug(f"📸 SCREENSHOT_FLOW: Found {len(frames)} frames")
+            before_image_base64 = None
+            after_image_base64 = None
+            
+            # Convert first frame to base64 (before action)
+            if len(frames) > 0:
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: Processing first frame...")
+                first_frame = frames[0]
+                enhanced_first = self.capture_system.enhance_frame(first_frame)
+                buffered = BytesIO()
+                enhanced_first.image.save(buffered, format="PNG")
+                before_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: First frame converted - {len(before_image_base64)} chars")
+            
+            # Convert last frame to base64 (after action)
+            if len(frames) > 1:
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: Processing last frame...")
+                last_frame = frames[-1]
+                enhanced_last = self.capture_system.enhance_frame(last_frame)
+                buffered = BytesIO()
+                enhanced_last.image.save(buffered, format="PNG")
+                after_image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: Last frame converted - {len(after_image_base64)} chars")
+            else:
+                # If only one frame, use it as both before and after
+                after_image_base64 = before_image_base64
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: Using single frame for both before/after")
+            
+            # Create metadata
+            self.logger.debug(f"📸 SCREENSHOT_FLOW: Creating metadata...")
+            if frames:
+                sample_frame = frames[0]
+                enhanced_sample = self.capture_system.enhance_frame(sample_frame)
+                metadata = {
+                    "width": enhanced_sample.image.width,
+                    "height": enhanced_sample.image.height,
+                    "timestamp": time.time(),
+                    "source": "game_control_single_process"
+                }
+            else:
+                metadata = {
+                    "width": 160,
+                    "height": 144,
+                    "timestamp": time.time(),
+                    "source": "game_control_single_process"
+                }
+            
+            # Publish screenshots message to dashboard
+            self.logger.debug(f"📸 SCREENSHOT_FLOW: Publishing message to dashboard...")
+            try:
+                # Add timeout protection around message publishing
+                import threading
+                import queue
+                
+                result_queue = queue.Queue()
+                
+                def publish_with_timeout():
+                    try:
+                        publish_screenshots_message(
+                            before_image=before_image_base64,
+                            after_image=after_image_base64,
+                            metadata=metadata,
+                            source="game_control"
+                        )
+                        result_queue.put("success")
+                    except Exception as e:
+                        result_queue.put(f"error: {e}")
+                
+                # Run publishing in separate thread with timeout
+                publish_thread = threading.Thread(target=publish_with_timeout, daemon=True)
+                publish_thread.start()
+                publish_thread.join(timeout=5.0)  # 5 second timeout
+                
+                # Check result
+                try:
+                    result = result_queue.get_nowait()
+                    if result == "success":
+                        self.logger.debug(f"📸 SCREENSHOT_FLOW: Message published successfully")
+                    else:
+                        self.logger.error(f"📸 SCREENSHOT_FLOW: Message publishing failed: {result}")
+                except queue.Empty:
+                    self.logger.error(f"📸 SCREENSHOT_FLOW: Message publishing timed out after 5s")
+                    
+            except Exception as timeout_error:
+                self.logger.error(f"📸 SCREENSHOT_FLOW: Timeout mechanism failed: {timeout_error}")
+                # Fallback to direct call
+                publish_screenshots_message(
+                    before_image=before_image_base64,
+                    after_image=after_image_base64,
+                    metadata=metadata,
+                    source="game_control"
+                )
+                self.logger.debug(f"📸 SCREENSHOT_FLOW: Message published via fallback")
+            
+            self.logger.info(f"📸 Forwarded screenshots to dashboard: {len(frames)} frames -> before/after images")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error forwarding screenshots to dashboard: {e}")
+            import traceback
+            self.logger.error(f"❌ Screenshot forwarding traceback: {traceback.format_exc()}")
     
     # Old WebSocket dashboard methods removed - now using message bus for all communication
 

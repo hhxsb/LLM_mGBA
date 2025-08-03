@@ -83,6 +83,70 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
     );
   };
 
+  const renderScreenshotsMessage = (message: ChatMessage) => {
+    const screenshots = message.content.screenshots;
+    if (!screenshots) return null;
+
+    return (
+      <div className="flex justify-start mb-4">
+        <div className="max-w-4xl">
+          <div className="bg-chat-gif border-l-4 border-pokemon-yellow p-4 rounded-lg shadow-md">
+            <div className="flex items-center mb-2">
+              <span className="text-2xl mr-2">📸</span>
+              <span className="font-semibold text-gray-800">Game Screenshots</span>
+              <span className="ml-auto text-xs text-gray-500">
+                {formatTimestamp(message.timestamp)}
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {screenshots.before && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-gray-700 flex items-center">
+                      <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                      Before Action
+                    </div>
+                    <img
+                      src={`data:image/png;base64,${screenshots.before}`}
+                      alt="Game Screenshot - Before"
+                      className="w-full rounded border-2 border-gray-200"
+                      style={{ maxWidth: '320px' }}
+                    />
+                  </div>
+                )}
+                
+                {screenshots.after && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-gray-700 flex items-center">
+                      <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                      After Action
+                    </div>
+                    <img
+                      src={`data:image/png;base64,${screenshots.after}`}
+                      alt="Game Screenshot - After"
+                      className="w-full rounded border-2 border-gray-200"
+                      style={{ maxWidth: '320px' }}
+                    />
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-xs text-gray-600 bg-gray-100 p-2 rounded">
+                <div className="grid grid-cols-2 gap-2">
+                  <span>📏 {screenshots.metadata.width}×{screenshots.metadata.height}</span>
+                  <span>📋 {screenshots.metadata.source}</span>
+                  <span>🔢 {screenshots.before && screenshots.after ? '2' : '1'} screenshot(s)</span>
+                  <span>🎬 {message.id.split('_')[1]}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderResponseMessage = (message: ChatMessage) => {
     const response = message.content.response;
     if (!response) return null;
@@ -223,6 +287,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, isConnected }) 
     switch (message.type) {
       case 'gif':
         return renderGifMessage(message);
+      case 'screenshots':
+        return renderScreenshotsMessage(message);
       case 'response':
         return renderResponseMessage(message);
       case 'action':

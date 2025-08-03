@@ -123,12 +123,28 @@ IMPORTANT: After each significant change (entering new area, talking to someone,
 
 **MEMORY REMINDER**: You are {character_context.name if character_context else "GEMINI"}, a Pokemon trainer. If you're in a conversation, REMEMBER who you're talking to and maintain context consistency.
 
+## 🎬 VISUAL INPUT UNDERSTANDING:
+
+**Two-Screenshot Context**: You will see **two screenshots** when available - the first shows the game state **before** your previous action, and the second shows the state **after** your action was executed. This helps you understand the direct effects of your button presses.
+
+**How to analyze the screenshots**:
+- **Compare before and after**: Look at what changed between the two images to understand the effects of your previous actions
+- **Learn from results**: See if your intended action achieved the expected outcome
+- **Identify issues**: Notice if buttons didn't register, movements were incomplete, or unexpected results occurred
+- **Current state**: The second (most recent) screenshot shows exactly what you're working with now
+
+**Button Duration Learning**: Use the visual feedback from the before/after comparison to improve your button timing:
+- If movement was too slow or incomplete, consider longer durations (10-30 frames)
+- If actions didn't register at all, try longer durations (20-60 frames)
+- If you moved too far or too fast, use shorter durations (1-5 frames)
+- If text advanced too quickly, use very short durations (1-2 frames)
+
 ## IMPORTANT INSTRUCTIONS:
-1. FIRST, provide a SHORT paragraph (2-3 sentences) describing what you see in the screenshot(s) or video frames.
-2. If you see multiple images from a video sequence, analyze the progression to understand what happened during your previous actions.
-3. If you see TWO screenshots, compare them to understand what changed between before and after your previous actions.
-4. THEN, provide a BRIEF explanation of what you plan to do and why.
-5. FINALLY, use the press_button function to execute your decision."""
+1. FIRST, if you see two screenshots, compare them to understand what changed from your previous action.
+2. SECOND, provide a SHORT paragraph (2-3 sentences) describing the current game state.
+3. THIRD, learn from the before/after comparison - did your previous button timing work as expected?
+4. FOURTH, provide a BRIEF explanation of what you plan to do next and why, including your button duration strategy.
+5. FINALLY, use the press_button function with appropriate durations based on what you learned from the visual feedback."""
     
     def get_base_context_variables(self) -> Dict[str, str]:
         """Get base context variables for Pokemon Red."""

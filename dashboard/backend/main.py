@@ -55,7 +55,7 @@ class DashboardApp:
         )
         
         # Initialize process manager (will be updated with actual port in run method)
-        self.process_manager = ProcessManager(self.config, frontend_only=self.frontend_only, mock_mode=self.mock_mode)
+        self.process_manager = ProcessManager(self.config, frontend_only=self.frontend_only, mock_mode=self.mock_mode, debug=self.debug)
         
         # Initialize log forwarder for real-time log streaming
         self.log_forwarder = initialize_log_forwarder(connection_manager.broadcast_log_stream)
@@ -409,8 +409,7 @@ def main():
     
     try:
         # Configure logging first with proper debug flag
-        configure_logging(debug=args.debug, process_name="dashboard")
-        PokemonAILogger.set_debug_env_var()  # Set environment variable for child processes
+        configure_logging(debug=args.debug, process_name="main")
         
         # Create DashboardApp with flags passed to constructor
         app = DashboardApp(

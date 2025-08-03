@@ -76,7 +76,8 @@ class PokemonRedController(BaseGameController):
         return GeminiClient(
             api_key=provider_config["api_key"],
             model_name=provider_config["model_name"],
-            max_tokens=provider_config.get("max_tokens", 1024)
+            max_tokens=provider_config.get("max_tokens", 1024),
+            timeout_seconds=self.config.get("llm_timeout_seconds", 60)
         )
     
     def _initialize_pokemon_notepad(self):

@@ -107,10 +107,34 @@ class UnifiedMessage:
                 }
             }
         )
+    
+    @classmethod
+    def create_screenshots_message(cls, before_image: str = None, after_image: str = None, 
+                                 metadata: Dict[str, Any] = None, source: str = "game_control") -> 'UnifiedMessage':
+        """Create a screenshots message with before/after images"""
+        return cls(
+            id=f"screenshots_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
+            type="screenshots",
+            timestamp=time.time(),
+            source=source,
+            content={
+                "screenshots": {
+                    "before": before_image,
+                    "after": after_image,
+                    "metadata": metadata or {
+                        "width": 160,
+                        "height": 144,
+                        "timestamp": time.time(),
+                        "source": source
+                    }
+                }
+            }
+        )
 
 
 # Type aliases for clarity
 GifMessage = UnifiedMessage
+ScreenshotsMessage = UnifiedMessage
 ResponseMessage = UnifiedMessage
 ActionMessage = UnifiedMessage
 SystemMessage = UnifiedMessage
@@ -172,6 +196,15 @@ def validate_system_content(content: Dict[str, Any]) -> bool:
     return all(field in system_data for field in required_fields)
 
 
+def validate_screenshots_content(content: Dict[str, Any]) -> bool:
+    """Validate screenshots message content structure"""
+    if "screenshots" not in content:
+        return False
+    screenshots_data = content["screenshots"]
+    # At least one of before or after must be present
+    return "before" in screenshots_data or "after" in screenshots_data
+
+
 def validate_unified_message(message: UnifiedMessage) -> bool:
     """Validate a unified message structure"""
     # Check required fields
@@ -181,6 +214,7 @@ def validate_unified_message(message: UnifiedMessage) -> bool:
     # Validate content based on type
     validators = {
         "gif": validate_gif_content,
+        "screenshots": validate_screenshots_content,
         "response": validate_response_content,
         "action": validate_action_content,
         "system": validate_system_content

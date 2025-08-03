@@ -123,10 +123,10 @@ class VideoCaptureProcess:
     
     def start(self):
         """Start the video capture process."""
-        print("🚀 Starting video capture process...")
+        self.logger.info("🚀 Starting video capture process...")
         
         if not self._initialize_capture_system():
-            print("❌ Failed to initialize capture system")
+            self.logger.error("❌ Failed to initialize capture system")
             return False
         
         self.running = True
@@ -149,7 +149,7 @@ class VideoCaptureProcess:
     
     def stop(self):
         """Stop the video capture process."""
-        print("🛑 Stopping video capture process...")
+        self.logger.info("🛑 Stopping video capture process...")
         
         self.running = False
         
@@ -167,14 +167,14 @@ class VideoCaptureProcess:
         if self.server_thread and self.server_thread.is_alive():
             self.server_thread.join(timeout=2.0)
         
-        print("✅ Video capture process stopped")
+        self.logger.info("✅ Video capture process stopped")
     
     def _capture_loop(self):
         """Main capture loop that continuously takes screenshots."""
         frame_interval = 1.0 / self.capture_fps  # Time between frames
         next_capture_time = time.time()
         
-        print(f"🎬 Started continuous capture loop at {self.capture_fps} FPS")
+        self.logger.info(f"🎬 Started continuous capture loop at {self.capture_fps} FPS")
         
         while self.running:
             current_time = time.time()
@@ -200,10 +200,10 @@ class VideoCaptureProcess:
                             # Log periodically
                             if self.frame_counter % (self.capture_fps * 5) == 0:  # Every 5 seconds
                                 buffer_duration = self._get_buffer_duration()
-                                print(f"📊 Captured {self.frame_counter} frames, buffer: {len(self.frame_buffer)} frames ({buffer_duration:.1f}s)")
+                                self.logger.debug(f"📊 Captured {self.frame_counter} frames, buffer: {len(self.frame_buffer)} frames ({buffer_duration:.1f}s)")
                 
                 except Exception as e:
-                    print(f"❌ Capture error: {e}")
+                    self.logger.error(f"❌ Capture error: {e}")
                 
                 # Schedule next capture
                 next_capture_time += frame_interval
@@ -225,7 +225,7 @@ class VideoCaptureProcess:
             self.server_socket.bind(('127.0.0.1', self.ipc_port))
             self.server_socket.listen(5)
             
-            print(f"🔗 IPC server listening on port {self.ipc_port}")
+            self.logger.info(f"🔗 IPC server listening on port {self.ipc_port}")
             
             while self.running:
                 try:
@@ -244,11 +244,11 @@ class VideoCaptureProcess:
                     continue
                 except Exception as e:
                     if self.running:
-                        print(f"❌ IPC server error: {e}")
+                        self.logger.error(f"❌ IPC server error: {e}")
                     break
         
         except Exception as e:
-            print(f"❌ Failed to start IPC server: {e}")
+            self.logger.error(f"❌ Failed to start IPC server: {e}")
     
     def _handle_gif_request(self, client_socket, address):
         """Handle a GIF generation request."""
@@ -279,7 +279,7 @@ class VideoCaptureProcess:
                 client_socket.send(response_data)
             except:
                 pass
-            print(f"❌ Error handling GIF request: {e}")
+            self.logger.error(f"❌ Error handling GIF request: {e}")
         
         finally:
             try:
@@ -301,7 +301,7 @@ class VideoCaptureProcess:
                 buffer_duration = self._get_buffer_duration()
                 default_duration = 5.0 if max_duration is None else max_duration
                 start_time = current_time - min(default_duration, buffer_duration)
-                print(f"📸 First GIF request: using {min(default_duration, buffer_duration):.1f}s of history")
+                self.logger.debug(f"📸 First GIF request: using {min(default_duration, buffer_duration):.1f}s of history")
             else:
                 # Subsequent GIFs: from last GIF timestamp to now
                 start_time = self.last_gif_timestamp
@@ -312,9 +312,9 @@ class VideoCaptureProcess:
                 max_subsequent_duration = gif_optimization.get('max_gif_duration', 10.0)  # Default: 10 seconds max
                 if duration_since_last > max_subsequent_duration:
                     start_time = current_time - max_subsequent_duration
-                    print(f"📸 Subsequent GIF request: {duration_since_last:.2f}s available, limited to {max_subsequent_duration:.1f}s")
+                    self.logger.debug(f"📸 Subsequent GIF request: {duration_since_last:.2f}s available, limited to {max_subsequent_duration:.1f}s")
                 else:
-                    print(f"📸 Subsequent GIF request: {duration_since_last:.2f}s since last GIF")
+                    self.logger.debug(f"📸 Subsequent GIF request: {duration_since_last:.2f}s since last GIF")
             
             end_time = current_time
             
@@ -362,7 +362,7 @@ class VideoCaptureProcess:
                 'fps': self.capture_fps
             }
             
-            print(f"📸 Generated GIF: {len(gif_frames)} frames, {duration:.2f}s")
+            self.logger.info(f"📸 Generated GIF: {len(gif_frames)} frames, {duration:.2f}s")
             
             # TIMELINE EVENT 2: T+0.1s - Video Capture generates GIF from rolling buffer → sends to dashboard
             timeline_logger = get_timeline_logger("video_capture")
@@ -391,7 +391,7 @@ class VideoCaptureProcess:
                 # Sample frames evenly across the duration
                 step = len(frames) // max_frames
                 frames = [frames[i] for i in range(0, len(frames), step)][:max_frames]
-                print(f"🎞️ Frame optimization: reduced to {len(frames)} frames")
+                self.logger.debug(f"🎞️ Frame optimization: reduced to {len(frames)} frames")
             
             # Convert frames to PIL images
             images = [frame.image for frame in frames]
@@ -402,7 +402,7 @@ class VideoCaptureProcess:
                 aspect_ratio = images[0].height / images[0].width
                 gif_height = int(gif_width * aspect_ratio)
                 images = [img.resize((gif_width, gif_height), PIL.Image.Resampling.LANCZOS) for img in images]
-                print(f"🖼️ Image resize: {gif_width}x{gif_height}")
+                self.logger.debug(f"🖼️ Image resize: {gif_width}x{gif_height}")
             
             # OPTIMIZATION 3: Adaptive frame duration based on actual frame count
             target_duration = gif_optimization.get('target_gif_duration', 5.0)  # Target 5 seconds
@@ -425,12 +425,12 @@ class VideoCaptureProcess:
             )
             
             gif_size = len(gif_buffer.getvalue())
-            print(f"📊 GIF created: {len(frames)} frames, {gif_size/1024:.1f}KB, {frame_duration_ms}ms/frame")
+            self.logger.debug(f"📊 GIF created: {len(frames)} frames, {gif_size/1024:.1f}KB, {frame_duration_ms}ms/frame")
             
             return gif_buffer.getvalue()
             
         except Exception as e:
-            print(f"❌ Error creating GIF: {e}")
+            self.logger.error(f"❌ Error creating GIF: {e}")
             return None
     
     def _get_status_response(self) -> Dict[str, Any]:
@@ -459,7 +459,7 @@ class VideoCaptureProcess:
             while self.running:
                 time.sleep(1.0)
         except KeyboardInterrupt:
-            print("\n🛑 Keyboard interrupt received")
+            self.logger.info("\n🛑 Keyboard interrupt received")
         finally:
             self.stop()
         
@@ -488,13 +488,14 @@ def main():
     if args.port:
         capture_process.ipc_port = args.port
     
-    print("🎬 Starting Pokemon AI Video Capture Process")
+    logger = get_logger("video_capture.main")
+    logger.info("🎬 Starting Pokemon AI Video Capture Process")
     success = capture_process.run_forever()
     
     if success:
-        print("✅ Video capture process completed successfully")
+        logger.info("✅ Video capture process completed successfully")
     else:
-        print("❌ Video capture process failed")
+        logger.error("❌ Video capture process failed")
         sys.exit(1)
 
 

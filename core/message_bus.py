@@ -267,6 +267,14 @@ def publish_system_message(text: str, level: str = "info", source: str = "system
     return message
 
 
+def publish_screenshots_message(before_image: str = None, after_image: str = None, 
+                               metadata: dict = None, source: str = "game_control"):
+    """Convenience function to publish screenshots message"""
+    message = UnifiedMessage.create_screenshots_message(before_image, after_image, metadata, source)
+    message_bus.publish_sync(message)
+    return message
+
+
 # Testing and debugging functions
 def test_message_bus():
     """Test message bus functionality"""

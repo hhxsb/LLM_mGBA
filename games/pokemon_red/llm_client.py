@@ -18,10 +18,11 @@ from core.base_game_controller import ToolCall
 class GeminiClient:
     """Client specifically for communicating with Gemini for Pokemon Red."""
     
-    def __init__(self, api_key: str, model_name: str, max_tokens: int = 1024):
+    def __init__(self, api_key: str, model_name: str, max_tokens: int = 4096, timeout_seconds: int = 60):
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens = max_tokens
+        self.timeout_seconds = timeout_seconds
         self._setup_client()
     
     def _setup_client(self):
@@ -68,24 +69,74 @@ class GeminiClient:
                 content_parts.append(image)
         
         try:
-            response = chat.send_message(
-                content=content_parts,
-                generation_config={
-                    "max_output_tokens": self.max_tokens,
-                    "temperature": 0.2,
-                    "top_p": 0.95,
-                    "top_k": 0
-                },
-                tools={"function_declarations": provider_tools}
-            )
-            
-            # 📸 Add comprehensive LLM API response logging (missing from dual process mode)
+            # Add timeout protection for LLM API calls
+            import concurrent.futures
+            import time
             from core.logging_config import get_logger
             logger = get_logger("pokemon_red.llm_client")
+            
+            def make_llm_call():
+                return chat.send_message(
+                    content=content_parts,
+                    generation_config={
+                        "max_output_tokens": self.max_tokens,
+                        "temperature": 0.2,
+                        "top_p": 0.95,
+                        "top_k": 0
+                    },
+                    tools={"function_declarations": provider_tools}
+                )
+            
+            # Use ThreadPoolExecutor with timeout
+            logger.debug(f"📸 LLM_TIMEOUT: Starting LLM call with {self.timeout_seconds}s timeout")
+            start_time = time.time()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(make_llm_call)
+                try:
+                    # Configurable timeout for LLM API calls
+                    response = future.result(timeout=self.timeout_seconds)
+                    elapsed = time.time() - start_time
+                    logger.debug(f"📸 LLM_TIMEOUT: LLM call completed in {elapsed:.2f}s")
+                except concurrent.futures.TimeoutError:
+                    elapsed = time.time() - start_time
+                    logger.error(f"📸 LLM_TIMEOUT: LLM API call timed out after {elapsed:.2f}s")
+                    print(f"⚠️ WARNING: LLM API call timed out after {self.timeout_seconds} seconds. Using fallback action...")
+                    # Create a fallback response
+                    fallback_response = self._create_fallback_response()
+                    return fallback_response, self._parse_tool_calls(fallback_response), "LLM API timeout - using fallback action"
+            
+            # 📸 Add comprehensive LLM API response logging (missing from dual process mode)
+            # (logger already imported above)
             
             # Log basic response info
             logger.info(f"📸 LLM API CALL SUCCESSFUL: Model={self.model_name}")
             logger.debug(f"📸 LLM REQUEST: {len(enhanced_message)} chars, {len(images) if images else 0} images")
+            
+            # Log complete raw response payload at DEBUG level
+            try:
+                import json
+                # Convert response to dict for serialization (handling Gemini response objects)
+                response_dict = {}
+                if hasattr(response, '__dict__'):
+                    response_dict = response.__dict__
+                elif hasattr(response, '_pb'):
+                    # Handle protobuf objects
+                    response_dict = {"_pb_data": str(response._pb) if hasattr(response, '_pb') else str(response)}
+                else:
+                    response_dict = {"response_type": str(type(response)), "response_str": str(response)}
+                
+                # Safely serialize the response
+                try:
+                    response_json = json.dumps(response_dict, default=str, indent=2)
+                    logger.debug(f"📸 LLM RAW RESPONSE PAYLOAD (FULL): {response_json}")
+                except (TypeError, ValueError) as e:
+                    # Fallback to string representation if JSON serialization fails
+                    logger.debug(f"📸 LLM RAW RESPONSE PAYLOAD (STRING): {str(response)}")
+                    logger.debug(f"📸 LLM RESPONSE SERIALIZATION ERROR: {e}")
+            except Exception as e:
+                logger.debug(f"📸 LLM RAW RESPONSE LOGGING ERROR: {e}")
+                logger.debug(f"📸 LLM RAW RESPONSE FALLBACK: {str(response)}")
             
             # Log response structure details
             if hasattr(response, 'candidates') and response.candidates:
@@ -100,7 +151,10 @@ class GeminiClient:
             # Log any safety/content filtering
             response_text = self._extract_text(response)
             if response_text:
+                # Log truncated version at INFO level for general monitoring
                 logger.info(f"📸 LLM RESPONSE TEXT: {response_text[:200]}{'...' if len(response_text) > 200 else ''}")
+                # Log full raw response at DEBUG level for detailed analysis
+                logger.debug(f"📸 LLM RAW RESPONSE (FULL): {response_text}")
             else:
                 logger.warning("📸 LLM RESPONSE: No text content extracted")
                 
@@ -135,8 +189,39 @@ class GeminiClient:
                         print("⚠️ WARNING: Response blocked for recitation. Retrying with fallback action...")
                         fallback_response = self._create_fallback_response()
                         return fallback_response, self._parse_tool_calls(fallback_response), "Recitation filter activated - using fallback action"
+                    elif candidate.finish_reason == 4:  # MAX_TOKENS
+                        print("⚠️ WARNING: Response cut off due to max tokens limit. Using what we have or fallback action...")
+                        logger = self._get_logger()
+                        logger.warning(f"📸 LLM MAX_TOKENS reached. Response truncated. Consider reducing prompt length.")
+                        # Try to extract any partial tool calls, otherwise use fallback
+                        tool_calls = self._parse_tool_calls(response)
+                        if tool_calls:
+                            logger.info(f"📸 LLM partial response recovered {len(tool_calls)} tool calls despite MAX_TOKENS")
+                            return response, tool_calls, "MAX_TOKENS reached - using partial response"
+                        else:
+                            logger.warning(f"📸 LLM MAX_TOKENS with no tool calls - using fallback")
+                            fallback_response = self._create_fallback_response()
+                            return fallback_response, self._parse_tool_calls(fallback_response), "MAX_TOKENS reached - using fallback action"
         
-        return response, self._parse_tool_calls(response), self._extract_text(response)
+        logger.debug(f"📸 LLM_FLOW: Starting post-LLM processing...")
+        
+        # Parse tool calls with detailed logging
+        logger.debug(f"📸 LLM_FLOW: Parsing tool calls...")
+        tool_calls = self._parse_tool_calls(response)
+        logger.debug(f"📸 LLM_FLOW: Tool calls parsed - {len(tool_calls)} calls found")
+        
+        # Extract text with detailed logging
+        logger.debug(f"📸 LLM_FLOW: Extracting response text...")
+        response_text = self._extract_text(response)
+        logger.debug(f"📸 LLM_FLOW: Response text extracted - {len(response_text) if response_text else 0} chars")
+        
+        logger.debug(f"📸 LLM_FLOW: LLM client processing complete, returning to caller...")
+        return response, tool_calls, response_text
+    
+    def _get_logger(self):
+        """Get logger instance for this class."""
+        from core.logging_config import get_logger
+        return get_logger("pokemon_red.llm_client")
     
     def _create_fallback_response(self):
         """Create a fallback response when the main response is blocked."""
@@ -173,46 +258,159 @@ class GeminiClient:
     
     def _parse_tool_calls(self, response: Any) -> List[ToolCall]:
         """Parse tool calls from Gemini's response."""
+        logger = self._get_logger()
         tool_calls = []
         
         try:
+            logger.debug("📸 TOOL_PARSE: Starting tool call parsing")
             if hasattr(response, "candidates"):
-                for candidate in response.candidates:
+                logger.debug(f"📸 TOOL_PARSE: Found {len(response.candidates)} candidates")
+                for i, candidate in enumerate(response.candidates):
+                    logger.debug(f"📸 TOOL_PARSE: Processing candidate {i}")
                     if hasattr(candidate, "content") and candidate.content:
-                        for part in candidate.content.parts:
+                        logger.debug(f"📸 TOOL_PARSE: Candidate {i} has content with {len(candidate.content.parts)} parts")
+                        for j, part in enumerate(candidate.content.parts):
+                            logger.debug(f"📸 TOOL_PARSE: Processing part {j}")
                             if hasattr(part, "function_call") and part.function_call:
+                                logger.debug(f"📸 TOOL_PARSE: Part {j} has function_call")
                                 if hasattr(part.function_call, "name") and part.function_call.name:
+                                    func_name = part.function_call.name
+                                    logger.debug(f"📸 TOOL_PARSE: Function name: {func_name}")
                                     args = {}
                                     if hasattr(part.function_call, "args") and part.function_call.args is not None:
+                                        logger.debug(f"📸 TOOL_PARSE: Function has args, type: {type(part.function_call.args)}")
                                         try:
-                                            if hasattr(part.function_call.args, "items"):
-                                                for key, value in part.function_call.args.items():
-                                                    # Handle protobuf list values
-                                                    if hasattr(value, '__iter__') and not isinstance(value, str):
-                                                        # It's a list-like object, convert to actual list
-                                                        args[key] = [str(item) for item in value]
-                                                    else:
-                                                        args[key] = str(value)
-                                            else:
-                                                args = {"argument": str(part.function_call.args)}
+                                            # Use a more robust argument parsing approach with timeout protection
+                                            args = self._parse_function_args_safe(part.function_call.args, logger)
+                                            logger.debug(f"📸 TOOL_PARSE: Final args: {args}")
                                         except Exception as e:
-                                            print(f"Error parsing function call args: {e}")
-                                            pass
+                                            logger.error(f"📸 TOOL_PARSE: Error parsing function call args: {e}")
+                                            # Fallback to empty args to prevent hanging
+                                            args = {}
                                     
+                                    logger.debug(f"📸 TOOL_PARSE: Creating ToolCall for {func_name}")
                                     tool_calls.append(ToolCall(
                                         id=f"call_{len(tool_calls)}",
-                                        name=part.function_call.name,
+                                        name=func_name,
                                         arguments=args
                                     ))
+                                    logger.debug(f"📸 TOOL_PARSE: ToolCall created successfully")
+                            else:
+                                logger.debug(f"📸 TOOL_PARSE: Part {j} has no function_call")
+                    else:
+                        logger.debug(f"📸 TOOL_PARSE: Candidate {i} has no content")
+            else:
+                logger.debug("📸 TOOL_PARSE: Response has no candidates")
         except Exception as e:
-            print(f"Error parsing Gemini tool calls: {e}")
+            logger.error(f"📸 TOOL_PARSE: Error parsing Gemini tool calls: {e}")
             import traceback
-            print(traceback.format_exc())
+            logger.error(f"📸 TOOL_PARSE: Traceback: {traceback.format_exc()}")
         
+        logger.debug(f"📸 TOOL_PARSE: Completed, found {len(tool_calls)} tool calls")
         for call in tool_calls:
-            print(f"Tool call: {call.name}, args: {call.arguments}")
+            logger.debug(f"📸 TOOL_PARSE: Tool call: {call.name}, args: {call.arguments}")
         
         return tool_calls
+    
+    def _parse_function_args_safe(self, args_obj, logger):
+        """Safely parse function arguments with timeout protection."""
+        import time
+        
+        args = {}
+        start_time = time.time()
+        
+        try:
+            logger.debug("📸 ARG_PARSE: Starting safe argument parsing")
+            
+            # Handle MapComposite (Google protobuf structure) specifically
+            if str(type(args_obj)) == "<class 'proto.marshal.collections.maps.MapComposite'>":
+                logger.debug("📸 ARG_PARSE: Processing MapComposite structure")
+                try:
+                    # Convert MapComposite to dict first
+                    args_dict = dict(args_obj)
+                    logger.debug(f"📸 ARG_PARSE: MapComposite converted to dict with keys: {list(args_dict.keys())}")
+                    
+                    for key, value in args_dict.items():
+                        logger.debug(f"📸 ARG_PARSE: Processing key '{key}', value type: {type(value)}")
+                        
+                        # Handle protobuf Value objects
+                        if hasattr(value, 'list_value') and value.list_value:
+                            logger.debug("📸 ARG_PARSE: Found list_value in protobuf Value")
+                            values_list = []
+                            if hasattr(value.list_value, 'values'):
+                                for val in value.list_value.values:
+                                    if hasattr(val, 'string_value'):
+                                        values_list.append(val.string_value)
+                                    else:
+                                        values_list.append(str(val))
+                            args[key] = values_list
+                            logger.debug(f"📸 ARG_PARSE: Extracted list: {args[key]}")
+                        elif hasattr(value, 'string_value'):
+                            logger.debug("📸 ARG_PARSE: Found string_value in protobuf Value")
+                            args[key] = value.string_value
+                            logger.debug(f"📸 ARG_PARSE: Extracted string: {args[key]}")
+                        else:
+                            logger.debug(f"📸 ARG_PARSE: Converting value to string: {value}")
+                            args[key] = str(value)
+                            
+                except Exception as e:
+                    logger.error(f"📸 ARG_PARSE: Error processing MapComposite: {e}")
+                    # Fallback to simple conversion
+                    args = {"fallback": str(args_obj)}
+                    
+            elif hasattr(args_obj, "items"):
+                logger.debug("📸 ARG_PARSE: Args has items() method")
+                # Limit iteration to prevent infinite loops
+                count = 0
+                for key, value in args_obj.items():
+                    count += 1
+                    if count > 100:  # Safety limit
+                        logger.warning("📸 ARG_PARSE: Hit iteration limit, breaking")
+                        break
+                        
+                    logger.debug(f"📸 ARG_PARSE: Processing arg {key}, value type: {type(value)}")
+                    
+                    # Handle different value types more carefully
+                    if hasattr(value, 'list_value'):
+                        # This is a protobuf list_value structure
+                        logger.debug("📸 ARG_PARSE: Found list_value structure")
+                        if hasattr(value.list_value, 'values'):
+                            values_list = []
+                            for val in value.list_value.values:
+                                if hasattr(val, 'string_value'):
+                                    values_list.append(val.string_value)
+                                else:
+                                    values_list.append(str(val))
+                            args[key] = values_list
+                        else:
+                            args[key] = [str(value.list_value)]
+                    elif hasattr(value, 'string_value'):
+                        # This is a protobuf string_value structure
+                        logger.debug("📸 ARG_PARSE: Found string_value structure")
+                        args[key] = value.string_value
+                    elif hasattr(value, '__iter__') and not isinstance(value, str):
+                        # Generic iterable
+                        logger.debug("📸 ARG_PARSE: Found generic iterable")
+                        args[key] = [str(item) for item in value]
+                    else:
+                        # Simple value
+                        logger.debug("📸 ARG_PARSE: Found simple value")
+                        args[key] = str(value)
+                    
+                    # Check if we're taking too long
+                    if time.time() - start_time > 3:
+                        logger.warning("📸 ARG_PARSE: Taking too long, breaking")
+                        break
+            else:
+                logger.debug("📸 ARG_PARSE: Args has no items() method, using string conversion")
+                args = {"argument": str(args_obj)}
+                
+        except Exception as e:
+            logger.error(f"📸 ARG_PARSE: Error in safe parsing: {e}")
+            args = {"error": str(e)}
+            
+        logger.debug(f"📸 ARG_PARSE: Safe parsing completed in {time.time() - start_time:.2f}s")
+        return args
     
     def _extract_text(self, response: Any) -> str:
         """Extract text from the Gemini response."""

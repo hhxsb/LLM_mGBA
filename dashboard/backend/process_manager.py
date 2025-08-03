@@ -24,11 +24,12 @@ logger = get_logger("dashboard.process_manager")
 class ProcessManager:
     """Manages all AI Pokemon Trainer processes"""
     
-    def __init__(self, config: Dict, frontend_only: bool = False, mock_mode: bool = False, dashboard_port: int = None):
+    def __init__(self, config: Dict, frontend_only: bool = False, mock_mode: bool = False, dashboard_port: int = None, debug: bool = False):
         self.config = config
         self.frontend_only = frontend_only
         self.mock_mode = mock_mode
         self.dashboard_port = dashboard_port  # Actual dashboard port
+        self.debug = debug  # Debug mode flag for subprocesses
         self.processes: Dict[str, ProcessInfo] = {}
         self.process_handles: Dict[str, subprocess.Popen] = {}
         self.monitoring_tasks: Dict[str, asyncio.Task] = {}
@@ -40,7 +41,7 @@ class ProcessManager:
     
     def _init_process_configs(self):
         """Initialize process configuration details"""
-        logger.debug(f"🔧 Initializing process configs (frontend_only: {self.frontend_only}, mock_mode: {self.mock_mode})")
+        logger.debug(f"🔧 Initializing process configs (frontend_only: {self.frontend_only}, mock_mode: {self.mock_mode}, debug: {self.debug})")
         
         # Check if npm is available
         frontend_dir = self.project_root / "dashboard" / "frontend"
@@ -60,10 +61,10 @@ class ProcessManager:
                 "command": self._get_video_capture_command(),
                 "cwd": str(self.project_root),
                 "port": self.config.get("dual_process_mode", {}).get("video_capture_port", 8889),
-                "required_for": ["game_control"],
+                "required_for": ["game_control"] if self.config.get("dual_process_mode", {}).get("enabled", True) else [],
                 "startup_delay": 2.0,
                 "optional": True,
-                "description": "Mock video capture process" if self.mock_mode else "Video capture process",
+                "description": self._get_video_capture_description(),
                 "auto_restart": False
             },
             "game_control": {
@@ -141,16 +142,35 @@ class ProcessManager:
             logger.warning(f"⚠️ npm check failed: {e}")
             return False
     
+    def _get_video_capture_description(self):
+        """Get description for video capture process based on config"""
+        dual_process_enabled = self.config.get("dual_process_mode", {}).get("enabled", True)
+        
+        if not dual_process_enabled:
+            return "Video capture process (disabled - using built-in screenshots)"
+        elif self.mock_mode:
+            return "Mock video capture process"
+        else:
+            return "Video capture process (dual process mode)"
+    
     def _get_video_capture_command(self):
-        """Get video capture command if file exists"""
+        """Get video capture command if file exists and dual process mode is enabled"""
+        # Check if dual process mode is enabled
+        dual_process_config = self.config.get("dual_process_mode", {})
+        dual_process_enabled = dual_process_config.get("enabled", True)
+        
+        if not dual_process_enabled:
+            logger.info("⏭️ Skipping video capture process - dual process mode disabled")
+            return None
+        
         if self.mock_mode:
             # Use mock video processor in mock mode
             mock_video_file = self.project_root / "mock_video_processor.py"
             if mock_video_file.exists():
-                port = self.config.get("dual_process_mode", {}).get("video_capture_port", 8889)
+                port = dual_process_config.get("video_capture_port", 8889)
                 cmd = [sys.executable, "mock_video_processor.py", "--port", str(port)]
-                # Add debug flag if environment variable is set
-                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                # Add debug flag if debug mode is enabled
+                if self.debug:
                     cmd.append("--debug")
                 return cmd
             else:
@@ -161,8 +181,8 @@ class ProcessManager:
             video_capture_file = self.project_root / "video_capture_process.py"
             if video_capture_file.exists():
                 cmd = [sys.executable, "video_capture_process.py", "--config", "config_emulator.json"]
-                # Add debug flag if environment variable is set
-                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                # Add debug flag if debug mode is enabled
+                if self.debug:
                     cmd.append("--debug")
                 return cmd
             else:
@@ -177,8 +197,8 @@ class ProcessManager:
             if mock_game_file.exists():
                 dashboard_port = self.dashboard_port or self.config.get("dashboard", {}).get("port", 3000)
                 cmd = [sys.executable, "mock_game_processor.py", "--dashboard-port", str(dashboard_port)]
-                # Add debug flag if environment variable is set
-                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                # Add debug flag if debug mode is enabled
+                if self.debug:
                     cmd.append("--debug")
                 return cmd
             else:
@@ -189,8 +209,8 @@ class ProcessManager:
             game_control_file = self.project_root / "game_control_process.py"
             if game_control_file.exists():
                 cmd = [sys.executable, "game_control_process.py", "--config", "config_emulator.json"]
-                # Add debug flag if environment variable is set
-                if os.getenv('POKEMON_AI_DEBUG') == '1':
+                # Add debug flag if debug mode is enabled
+                if self.debug:
                     cmd.append("--debug")
                 return cmd
             else:
@@ -280,7 +300,7 @@ class ProcessManager:
             logger.info(f"✅ Started {process_name} (PID: {process.pid})")
             logger.info(f"🔍 Command: {' '.join(config['command'])}")
             logger.info(f"🔍 Working directory: {config['cwd']}")
-            logger.info(f"🔍 Environment variables: POKEMON_AI_DEBUG={os.getenv('POKEMON_AI_DEBUG', 'not set')}")
+            logger.info(f"🔧 Debug mode for subprocesses: {self.debug}")
             
             # Log the individual log file path for this process (per specification)
             import tempfile
@@ -407,24 +427,36 @@ class ProcessManager:
         
         # Special dependency rules
         if process_name == "game_control":
-            # game_control requires video_capture to be running
-            video_capture_info = self.processes.get("video_capture")
-            if not video_capture_info:
-                logger.debug(f"🔍 game_control dependency check: video_capture not found")
-                return False
+            # Check if dual process mode is enabled
+            dual_process_enabled = self.config.get("dual_process_mode", {}).get("enabled", True)
             
-            logger.debug(f"🔍 game_control dependency check: video_capture status = {video_capture_info.status}")
-            if video_capture_info.status != ProcessStatus.RUNNING:
-                logger.debug(f"🔍 game_control dependency check: video_capture not running (status: {video_capture_info.status})")
-                return False
+            if dual_process_enabled:
+                # In dual process mode, game_control requires video_capture to be running
+                video_capture_info = self.processes.get("video_capture")
+                if not video_capture_info:
+                    logger.debug(f"🔍 game_control dependency check: video_capture not found (dual process mode)")
+                    return False
+                
+                logger.debug(f"🔍 game_control dependency check: video_capture status = {video_capture_info.status}")
+                if video_capture_info.status != ProcessStatus.RUNNING:
+                    logger.debug(f"🔍 game_control dependency check: video_capture not running (status: {video_capture_info.status})")
+                    return False
+            else:
+                # In single process mode, game_control doesn't require video_capture
+                logger.debug(f"🔍 game_control dependency check: single process mode - no video_capture dependency")
         
         return True
     
     def _mark_dependent_processes_skipped(self, failed_process: str):
         """Mark processes that depend on the failed process as skipped"""
-        if failed_process == "video_capture":
-            # If video_capture fails, game_control will also fail
-            logger.info(f"📋 Marking game_control as skipped due to video_capture failure")
+        dual_process_enabled = self.config.get("dual_process_mode", {}).get("enabled", True)
+        
+        if failed_process == "video_capture" and dual_process_enabled:
+            # If video_capture fails in dual process mode, game_control will also fail
+            logger.info(f"📋 Marking game_control as skipped due to video_capture failure (dual process mode)")
+        elif failed_process == "video_capture" and not dual_process_enabled:
+            # In single process mode, video_capture failure doesn't affect game_control
+            logger.debug(f"📋 video_capture failure doesn't affect game_control in single process mode")
     
     async def _monitor_process(self, process_name: str):
         """Monitor a process and handle failures"""
