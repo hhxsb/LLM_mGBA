@@ -1,0 +1,370 @@
+/* Pokemon Theme Overrides */
+
+:root {
+    --pokemon-red: #ff1744;
+    --pokemon-blue: #2979ff;
+    --pokemon-yellow: #ffc107;
+    --pokemon-green: #4caf50;
+    --pokemon-purple: #9c27b0;
+    --pokemon-orange: #ff9800;
+    
+    --text-primary: #2d3748;
+    --text-secondary: #4a5568;
+    --text-muted: #718096;
+    
+    --bg-primary: rgba(255, 255, 255, 0.95);
+    --bg-secondary: rgba(255, 255, 255, 0.8);
+    --bg-accent: rgba(66, 153, 225, 0.1);
+}
+
+/* Pokemon-themed Background */
+body {
+    background: linear-gradient(135deg, 
+        #667eea 0%, 
+        #764ba2 25%,
+        #f093fb 50%,
+        #f5576c 75%,
+        #4facfe 100%);
+    background-size: 400% 400%;
+    animation: gradientShift 15s ease infinite;
+}
+
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Enhanced Navigation */
+.navbar {
+    background: linear-gradient(90deg, 
+        rgba(255, 23, 68, 0.9) 0%,
+        rgba(41, 121, 255, 0.9) 50%,
+        rgba(255, 193, 7, 0.9) 100%);
+    border-bottom: 2px solid var(--pokemon-yellow);
+}
+
+.nav-brand h1 {
+    background: linear-gradient(45deg, var(--pokemon-red), var(--pokemon-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.nav-link {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    font-weight: 600;
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    color: white;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.nav-link.active {
+    background: var(--pokemon-yellow);
+    color: var(--text-primary);
+    border-color: var(--pokemon-orange);
+}
+
+/* Connection Status */
+.connection-status {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+/* Enhanced Status Cards */
+.status-card {
+    border-left-width: 6px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.status-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+
+.status-card:hover::before {
+    transform: translateX(100%);
+}
+
+/* Pokemon-themed Status Indicators */
+.status-card:nth-child(1) { border-left-color: var(--pokemon-red); }
+.status-card:nth-child(2) { border-left-color: var(--pokemon-blue); }
+.status-card:nth-child(3) { border-left-color: var(--pokemon-purple); }
+.status-card:nth-child(4) { border-left-color: var(--pokemon-green); }
+
+/* Message Type Colors */
+.gif-message {
+    border-left-color: var(--pokemon-yellow);
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+.screenshots-message {
+    border-left-color: var(--pokemon-green);
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+.response-message {
+    border-left-color: var(--pokemon-blue);
+    background: linear-gradient(135deg, rgba(41, 121, 255, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+.action-message {
+    border-left-color: var(--pokemon-purple);
+    background: linear-gradient(135deg, rgba(156, 39, 176, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+.system-message {
+    border-left-color: var(--pokemon-red);
+    background: linear-gradient(135deg, rgba(255, 23, 68, 0.1), rgba(255, 255, 255, 0.9));
+}
+
+/* Enhanced Buttons */
+.btn {
+    position: relative;
+    overflow: hidden;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+}
+
+.btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.btn-clear {
+    background: linear-gradient(45deg, var(--pokemon-red), #ff4569);
+    color: white;
+    border: 2px solid var(--pokemon-red);
+}
+
+.btn-export {
+    background: linear-gradient(45deg, var(--pokemon-blue), #4fa8ff);
+    color: white;
+    border: 2px solid var(--pokemon-blue);
+}
+
+/* Action Buttons (Pokemon Move Style) */
+.action-button {
+    background: linear-gradient(45deg, var(--pokemon-green), #66bb6a);
+    color: white;
+    border: 2px solid var(--pokemon-green);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+}
+
+.action-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Message Animations */
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message {
+    animation: messageSlideIn 0.5s ease;
+}
+
+/* Pokemon Ball Loading Animation */
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    background: linear-gradient(90deg, 
+        var(--pokemon-red) 0% 50%, 
+        var(--pokemon-blue) 50% 100%);
+    border: 3px solid white;
+    border-radius: 50%;
+    animation: pokeBallSpin 1s linear infinite;
+    box-shadow: 0 0 0 2px var(--text-primary);
+}
+
+.loading::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    background: white;
+    border: 2px solid var(--text-primary);
+    border-radius: 50%;
+    z-index: 1;
+}
+
+@keyframes pokeBallSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Welcome Message Enhancement */
+.message-welcome {
+    background: linear-gradient(135deg, 
+        rgba(255, 193, 7, 0.1),
+        rgba(41, 121, 255, 0.1),
+        rgba(255, 23, 68, 0.1));
+    border-radius: 12px;
+    border: 2px dashed rgba(255, 193, 7, 0.5);
+}
+
+.welcome-icon {
+    animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateY(0);
+    }
+    40% {
+        transform: translateY(-10px);
+    }
+    60% {
+        transform: translateY(-5px);
+    }
+}
+
+/* Reasoning Section Enhancement */
+.response-reasoning summary {
+    background: linear-gradient(45deg, 
+        rgba(41, 121, 255, 0.1),
+        rgba(156, 39, 176, 0.1));
+    border: 1px solid rgba(41, 121, 255, 0.3);
+}
+
+.reasoning-content {
+    background: linear-gradient(135deg, 
+        rgba(41, 121, 255, 0.1),
+        rgba(255, 255, 255, 0.9));
+    border: 1px solid rgba(41, 121, 255, 0.3);
+}
+
+/* Footer Enhancement */
+.footer {
+    background: linear-gradient(90deg, 
+        rgba(255, 23, 68, 0.9) 0%,
+        rgba(41, 121, 255, 0.9) 50%,
+        rgba(255, 193, 7, 0.9) 100%);
+    color: white;
+}
+
+.footer-content {
+    color: white;
+}
+
+/* Hover Effects for Cards */
+.status-card:hover,
+.message:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive Pokemon Theme */
+@media (max-width: 768px) {
+    .nav-brand h1 {
+        font-size: 1.25rem;
+    }
+    
+    .action-buttons {
+        justify-content: center;
+    }
+    
+    .welcome-icon {
+        font-size: 3rem;
+    }
+}
+
+/* Admin Panel Specific Styles */
+.admin-panel {
+    background: linear-gradient(135deg, 
+        rgba(156, 39, 176, 0.1),
+        rgba(255, 255, 255, 0.95));
+}
+
+.admin-card {
+    border-left-color: var(--pokemon-purple);
+    background: linear-gradient(135deg, 
+        rgba(156, 39, 176, 0.05),
+        rgba(255, 255, 255, 0.9));
+}
+
+/* Process Status Colors */
+.status-running { color: var(--pokemon-green); }
+.status-stopped { color: var(--pokemon-red); }
+.status-starting { color: var(--pokemon-yellow); }
+.status-error { color: var(--pokemon-red); }
+
+/* Special Effects */
+.sparkle {
+    position: relative;
+    overflow: hidden;
+}
+
+.sparkle::after {
+    content: '✨';
+    position: absolute;
+    top: 10%;
+    right: 10%;
+    opacity: 0;
+    animation: sparkle 3s infinite;
+}
+
+@keyframes sparkle {
+    0%, 100% { 
+        opacity: 0; 
+        transform: scale(0.5) rotate(0deg);
+    }
+    50% { 
+        opacity: 1; 
+        transform: scale(1) rotate(180deg);
+    }
+}

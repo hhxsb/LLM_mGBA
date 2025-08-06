@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title|default:"Pokemon AI Dashboard" }}{% endblock %}</title>
+    
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+    <link rel="stylesheet" href="{% static 'dashboard/css/pokemon-theme.css' %}">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/images/favicon.svg' %}">
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <h1>🎮 Pokemon AI Dashboard</h1>
+            </div>
+            
+            <div class="nav-links">
+                <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
+                    📊 Dashboard
+                </a>
+                <a href="{% url 'admin_panel' %}" class="nav-link {% if page == 'admin' %}active{% endif %}">
+                    ⚙️ Admin
+                </a>
+                <a href="/admin/" class="nav-link" target="_blank">
+                    🔧 Django Admin
+                </a>
+            </div>
+            
+            <!-- Connection Status -->
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-indicator" id="statusIndicator">🔴</span>
+                <span class="status-text" id="statusText">Connecting...</span>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 Pokemon AI Dashboard - Powered by Django & Channels</p>
+            <div class="footer-stats">
+                <span id="messageCount">0 messages</span>
+                <span id="uptime">Uptime: 0s</span>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- JavaScript -->
+    <script src="{% static 'dashboard/js/websocket.js' %}"></script>
+    <script src="{% static 'dashboard/js/dashboard.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+    
+    <!-- Initialize WebSocket -->
+    <script>
+        // Initialize WebSocket connection
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof DashboardWebSocket !== 'undefined') {
+                window.dashboardWS = new DashboardWebSocket();
+                window.dashboardWS.connect();
+            }
+        });
+    </script>
+</body>
+</html>

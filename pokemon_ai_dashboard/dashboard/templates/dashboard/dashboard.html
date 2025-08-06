@@ -1,0 +1,175 @@
+{% extends 'dashboard/base.html' %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- System Status Panel -->
+    <div class="status-panel">
+        <h2>🖥️ System Status</h2>
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+                <h3>🎮 Game Control</h3>
+                <div class="status-indicator" id="gameControlStatus">⏸️ Stopped</div>
+            </div>
+            <div class="status-card">
+                <h3>📹 Video Capture</h3>
+                <div class="status-indicator" id="videoCaptureStatus">⏸️ Stopped</div>
+            </div>
+            <div class="status-card">
+                <h3>🧠 Knowledge System</h3>
+                <div class="status-indicator" id="knowledgeSystemStatus">⏸️ Stopped</div>
+            </div>
+            <div class="status-card">
+                <h3>📊 Memory Usage</h3>
+                <div class="status-indicator" id="memoryUsage">0%</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chat Interface -->
+    <div class="chat-panel">
+        <div class="chat-header">
+            <h2>💬 AI Game Session</h2>
+            <div class="chat-controls">
+                <button class="btn btn-clear" onclick="clearChat()">🗑️ Clear</button>
+                <button class="btn btn-export" onclick="exportMessages()">📥 Export</button>
+            </div>
+        </div>
+        
+        <div class="chat-container" id="chatContainer">
+            <div class="chat-messages" id="chatMessages">
+                <!-- Welcome message -->
+                <div class="message-welcome">
+                    <div class="welcome-icon">🎮</div>
+                    <h3>AI Pokemon Trainer Ready</h3>
+                    <p>Waiting for the AI to start playing Pokemon Red...</p>
+                    <p>Game footage, AI responses, and actions will appear here.</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-footer">
+            <div class="chat-stats">
+                <span id="chatMessageCount">0 messages in chat</span>
+                <span>🔄 Auto-scroll enabled</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chat Message Templates -->
+<template id="gifMessageTemplate">
+    <div class="message gif-message">
+        <div class="message-header">
+            <span class="message-icon">🎮</span>
+            <span class="message-type">Game Footage</span>
+            <span class="message-time"></span>
+        </div>
+        <div class="message-content">
+            <img class="gif-image" alt="Game GIF">
+            <div class="gif-metadata">
+                <span class="frame-count"></span>
+                <span class="duration"></span>
+                <span class="file-size"></span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template id="screenshotsMessageTemplate">
+    <div class="message screenshots-message">
+        <div class="message-header">
+            <span class="message-icon">📸</span>
+            <span class="message-type">Game Screenshots</span>
+            <span class="message-time"></span>
+        </div>
+        <div class="message-content">
+            <div class="screenshots-grid">
+                <div class="screenshot-before">
+                    <div class="screenshot-label">
+                        <span class="indicator before"></span>
+                        Before Action
+                    </div>
+                    <img class="screenshot-image" alt="Before Action">
+                </div>
+                <div class="screenshot-after">
+                    <div class="screenshot-label">
+                        <span class="indicator after"></span>
+                        After Action
+                    </div>
+                    <img class="screenshot-image" alt="After Action">
+                </div>
+            </div>
+            <div class="screenshots-metadata">
+                <span class="dimensions"></span>
+                <span class="source"></span>
+                <span class="count"></span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template id="responseMessageTemplate">
+    <div class="message response-message">
+        <div class="message-header">
+            <span class="message-icon">🤖</span>
+            <span class="message-type">AI Response</span>
+            <span class="message-time"></span>
+        </div>
+        <div class="message-content">
+            <div class="response-text"></div>
+            <details class="response-reasoning">
+                <summary>💭 Reasoning</summary>
+                <div class="reasoning-content"></div>
+            </details>
+            <div class="response-metadata">
+                <span class="confidence"></span>
+                <span class="processing-time"></span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template id="actionMessageTemplate">
+    <div class="message action-message">
+        <div class="message-header">
+            <span class="message-icon">🎯</span>
+            <span class="message-type">Actions</span>
+            <span class="message-time"></span>
+        </div>
+        <div class="message-content">
+            <div class="action-buttons"></div>
+            <div class="action-durations"></div>
+        </div>
+    </div>
+</template>
+
+<template id="systemMessageTemplate">
+    <div class="message system-message">
+        <div class="message-header">
+            <span class="message-icon"></span>
+            <span class="message-type">System</span>
+            <span class="message-time"></span>
+        </div>
+        <div class="message-content">
+            <div class="system-text"></div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Dashboard-specific JavaScript
+function clearChat() {
+    if (window.dashboardWS) {
+        window.dashboardWS.clearChat();
+    }
+}
+
+function exportMessages() {
+    if (window.dashboardWS) {
+        window.dashboardWS.exportMessages();
+    }
+}
+</script>
+{% endblock %}
