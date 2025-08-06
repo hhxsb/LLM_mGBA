@@ -4,24 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. While initially demonstrated with Pokémon Red, the system is designed to be game-agnostic and extensible to any GBA title.
+**AI GBA Player** is a universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. The system features a modern web interface for real-time monitoring and control, and is designed to be game-agnostic and extensible to any GBA title.
 
 **Based on**: [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red) - Original Pokémon Red AI benchmark
 
 **Key Innovations**: 
+- **AI GBA Player Web Interface** - Modern Django-based web interface with real-time monitoring
 - **Universal game framework** designed to play any GBA game, not just Pokémon
-- **Sophisticated knowledge management and memory system** that enables the AI to maintain game context and learn from interactions
-- **Unified dashboard with real-time monitoring** providing WebSocket streaming of AI decisions, GIFs, and process management
+- **Professional process management** with health monitoring and admin controls
+- **WebSocket streaming** for real-time AI decisions, GIFs, and system status
 - **Dual-process architecture** with optimized video capture and game control processes
 - **Extensible game modules** allowing easy addition of new games and AI behaviors
 
 ## Core Architecture
 
-### Four-Layer System with Unified Dashboard
+### Four-Layer System with AI GBA Player Web Interface
 1. **mGBA Emulator + Lua Script** (`emulator/script.lua`) - Game interface layer
 2. **Video Capture Process** (`video_capture_process.py`) - Rolling video buffer with GIF generation
 3. **Game Control Process** (`game_control_process.py`) - AI decision-making and emulator communication
-4. **Unified Dashboard** (`dashboard.py`) - Real-time monitoring, admin controls, and process management
+4. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django-based web interface with real-time monitoring and process management
 
 ### Enhanced Data Flow
 ```
@@ -29,11 +30,11 @@ Emulator → Lua Script → Game Control Process → Knowledge System → Enhanc
                 ↓                                    ↑
         Video Capture Process ← Screenshot Requests  │
                 ↓                                    │
-        Dashboard ← WebSocket Streaming ──────────────┘
+        AI GBA Player Interface ← WebSocket Streaming ───┘
                 (GIFs, AI Responses, Actions)
 ```
 
-The system uses a dual-process architecture with rolling video buffers, real-time dashboard integration via WebSocket streaming, and **intelligent context management** that provides the LLM with optimally prioritized information for decision-making.
+The system uses a dual-process architecture with rolling video buffers, real-time web interface integration via WebSocket streaming, and **intelligent context management** that provides the LLM with optimally prioritized information for decision-making.
 
 ## Knowledge System Architecture
 
@@ -77,34 +78,42 @@ The system includes **8 implemented knowledge features** that dramatically impro
 
 ## Key Commands
 
-### Running the System
+### Running the AI GBA Player
 ```bash
-# Install dependencies (including opencv-python for video capture)
+# Install dependencies
 pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python
 
-# Easy startup with unified dashboard (RECOMMENDED)
-# Currently supports Pokemon Red, framework ready for additional games
-python dashboard.py --config config_emulator.json
+# Start AI GBA Player (RECOMMENDED)
+cd ai_gba_player
+python manage.py runserver
 
-# Manual startup for development
+# Launch game processes via web interface or command line
+python manage.py start_process all --config config_emulator.json
+
+# Alternative: Manual startup for development
 python video_capture_process.py --config config_emulator.json
 python game_control_process.py --config config_emulator.json
 ```
 
 ### Setup Sequence (CRITICAL ORDER)
 1. Start mGBA and load any GBA ROM (currently optimized for Pokémon Red)
-2. **Option A (Easy)**: Start dashboard: `python dashboard.py --config config_emulator.json`
-3. **Option B (Manual)**: Start video capture, then game control processes
+2. **Recommended**: Start AI GBA Player: `cd ai_gba_player && python manage.py runserver`
+3. **Alternative**: Manual startup: Start video capture, then game control processes
 4. Update project path in `emulator/script.lua` if needed
 5. In mGBA: Tools > Script Viewer > Load `emulator/script.lua`
 
-### Dashboard Access
-- **Frontend**: http://localhost:5173 (main interface)
-- **Backend API**: http://127.0.0.1:3000
-- **Admin Panel**: Click ⚙️ Admin tab for process management
+### AI GBA Player Access
+- **Web Interface**: http://localhost:8000 (main interface)
+- **Game Monitor**: http://localhost:8000/ (live gameplay)
+- **System Control**: http://localhost:8000/admin-panel/ (process management)
+- **Django Admin**: http://localhost:8000/admin/ (system administration)
 
 ### Testing Components
 ```bash
+# Test AI GBA Player functionality
+cd ai_gba_player
+python manage.py test
+
 # Test individual knowledge system features
 python tests/test_conversation_tracking.py
 python tests/test_dialogue_recording.py
@@ -123,23 +132,27 @@ emulator/screenshot_test.lua  # Screenshot capture testing
 LLM_mGBA/
 ├── README.md                          # Main documentation
 ├── CLAUDE.md                          # This file - project guidance
-├── dashboard.py                       # Unified dashboard with process management
+├── ai_gba_player/                     # AI GBA Player web interface (MAIN FEATURE)
+│   ├── manage.py                      # Django management commands
+│   ├── ai_gba_player/                 # Django project settings
+│   │   ├── settings.py                # Django configuration
+│   │   ├── urls.py                    # URL routing
+│   │   └── wsgi.py                    # WSGI configuration
+│   ├── dashboard/                     # Django app for game monitoring
+│   │   ├── models.py                  # Data models
+│   │   ├── views.py                   # Web views
+│   │   ├── templates/dashboard/       # HTML templates
+│   │   │   ├── base.html              # Base template with GBA theme
+│   │   │   ├── dashboard.html         # Game monitor interface
+│   │   │   └── admin_panel.html       # System control interface
+│   │   └── static/dashboard/          # Static files
+│   │       ├── css/gba-theme.css      # GBA universal theme
+│   │       └── js/dashboard.js        # Dashboard JavaScript
+│   └── management/                    # Django management commands
+│       └── commands/                  # Process control commands
 ├── video_capture_process.py           # Video capture with rolling buffer
 ├── game_control_process.py            # AI decision-making process
 ├── config_emulator.json               # Main configuration file
-├── dashboard/                         # Dashboard implementation
-│   ├── backend/                       # FastAPI backend
-│   │   ├── main.py                    # Dashboard server
-│   │   ├── process_manager.py         # Process lifecycle management
-│   │   └── api/                       # REST API endpoints
-│   └── frontend/                      # React dashboard UI
-│       ├── src/
-│       │   ├── App.tsx                # Main dashboard interface
-│       │   ├── components/            # UI components
-│       │   │   ├── AdminPanel.tsx     # Process management UI
-│       │   │   └── Dashboard.tsx      # Main monitoring interface
-│       │   └── types/                 # TypeScript definitions
-│       └── package.json
 ├── core/                              # Core system components
 │   ├── base_knowledge_system.py       # Knowledge management system (80+ methods)
 │   ├── base_capture_system.py         # Video capture system
@@ -147,7 +160,7 @@ LLM_mGBA/
 │   ├── base_game_controller.py        # Main controller logic
 │   ├── base_game_engine.py           # Game state handling
 │   └── base_prompt_template.py       # Prompt formatting system
-├── games/pokemon_red/                 # Pokemon Red specific implementation
+├── games/pokemon_red/                 # Pokemon Red implementation (extensible framework)
 │   ├── controller.py                  # Pokemon Red controller with knowledge integration
 │   ├── knowledge_system.py            # Game-specific knowledge management
 │   ├── prompt_template.py            # Pokemon Red prompts with enhanced formatting

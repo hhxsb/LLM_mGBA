@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{{ title|default:"Pokemon AI Dashboard" }}{% endblock %}</title>
+    <title>{% block title %}{{ title|default:"AI GBA Player" }}{% endblock %}</title>
     
     {% load static %}
     <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
-    <link rel="stylesheet" href="{% static 'dashboard/css/pokemon-theme.css' %}">
+    <link rel="stylesheet" href="{% static 'dashboard/css/gba-theme.css' %}">
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{% static 'dashboard/images/favicon.svg' %}">
@@ -19,15 +19,15 @@
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <h1>🎮 Pokemon AI Dashboard</h1>
+                <h1>🎮 AI GBA Player</h1>
             </div>
             
             <div class="nav-links">
                 <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
-                    📊 Dashboard
+                    🎯 Game Monitor
                 </a>
                 <a href="{% url 'admin_panel' %}" class="nav-link {% if page == 'admin' %}active{% endif %}">
-                    ⚙️ Admin
+                    ⚙️ System Control
                 </a>
                 <a href="/admin/" class="nav-link" target="_blank">
                     🔧 Django Admin
@@ -50,7 +50,7 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-content">
-            <p>&copy; 2025 Pokemon AI Dashboard - Powered by Django & Channels</p>
+            <p>&copy; 2025 AI GBA Player - Universal AI Gaming Platform</p>
             <div class="footer-stats">
                 <span id="messageCount">0 messages</span>
                 <span id="uptime">Uptime: 0s</span>

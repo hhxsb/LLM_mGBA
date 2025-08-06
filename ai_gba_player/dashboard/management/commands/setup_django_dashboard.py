@@ -58,7 +58,7 @@ class Command(BaseCommand):
         self.stdout.write('')
         self.stdout.write('Next steps:')
         self.stdout.write('1. Start Django server: python manage.py runserver')
-        self.stdout.write('2. Start Daphne for WebSocket support: daphne -b 0.0.0.0 -p 8000 pokemon_ai_dashboard.asgi:application')
+        self.stdout.write('2. Start Daphne for WebSocket support: daphne -b 0.0.0.0 -p 8000 ai_gba_player.asgi:application')
         self.stdout.write('3. Visit http://localhost:8000 to access the dashboard')
     
     def _create_initial_processes(self):

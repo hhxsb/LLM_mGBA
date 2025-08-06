@@ -1,5 +1,5 @@
 """
-WSGI config for pokemon_ai_dashboard project.
+WSGI config for ai_gba_player project.
 
 It exposes the WSGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pokemon_ai_dashboard.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ai_gba_player.settings')
 
 application = get_wsgi_application()

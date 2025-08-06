@@ -1,5 +1,5 @@
 """
-URL configuration for pokemon_ai_dashboard project.
+URL configuration for ai_gba_player project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.2/topics/http/urls/

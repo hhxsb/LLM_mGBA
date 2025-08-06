@@ -20,7 +20,7 @@ def health_check(request):
     return Response({
         'status': 'healthy',
         'timestamp': time.time(),
-        'service': 'pokemon_ai_dashboard'
+        'service': 'ai_gba_player'
     })
 
 

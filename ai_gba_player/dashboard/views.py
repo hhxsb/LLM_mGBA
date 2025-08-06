@@ -7,7 +7,7 @@ import time
 def dashboard_view(request):
     """Main dashboard view"""
     context = {
-        'title': 'Pokemon AI Dashboard',
+        'title': 'AI GBA Player',
         'page': 'dashboard'
     }
     return render(request, 'dashboard/dashboard.html', context)
@@ -20,7 +20,7 @@ def admin_panel_view(request):
     recent_logs = SystemLog.objects.all()[:20]
     
     context = {
-        'title': 'Admin Panel - Pokemon AI Dashboard',
+        'title': 'System Control - AI GBA Player',
         'page': 'admin',
         'processes': processes,
         'recent_logs': recent_logs

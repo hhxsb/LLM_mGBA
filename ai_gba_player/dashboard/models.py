@@ -11,7 +11,7 @@ class ProcessStatus(models.TextChoices):
 
 
 class Process(models.Model):
-    """Model for tracking AI Pokemon processes"""
+    """Model for tracking AI GBA game processes"""
     name = models.CharField(max_length=100, unique=True)
     status = models.CharField(
         max_length=20,
