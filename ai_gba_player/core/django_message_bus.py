@@ -1,5 +1,5 @@
 """
-Django Channels integration for the Pokemon AI message bus system.
+Django Channels integration for the AI GBA Player message bus system.
 Bridges the existing message bus with Django Channels WebSocket consumers.
 """
 

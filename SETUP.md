@@ -161,28 +161,23 @@ This will:
 - Start knowledge system process
 - Display all URLs for access
 
-#### Method 2: Manual Startup (Development)
+#### Method 2: Django-based Startup (Recommended)
 ```bash
-# Terminal 1: Video capture
-python video_capture_process.py --config config_emulator.json
+# Terminal 1: Start Django server
+cd ai_gba_player
+python manage.py runserver
 
-# Terminal 2: Game control
-python game_control_process.py --config config_emulator.json
-
-# Terminal 3: Dashboard (optional)
-python dashboard.py --config config_emulator.json
+# Terminal 2: Start unified service
+python manage.py start_process unified_service --config config_emulator.json
 ```
 
-#### Method 3: Individual Process Testing
+#### Method 3: Direct Service Testing (Development)
 ```bash
-# Test video capture only
-python video_capture_process.py --config config_emulator.json
+# Test unified service directly
+python -m ai_gba_player.core.unified_game_service --config config_emulator.json
 
-# Test WebSocket integration
-python test_dashboard_websocket.py
-
-# Test complete system
-python test_complete_system.py
+# Test system integration
+python test_unified_service.py
 ```
 
 ### Startup Sequence

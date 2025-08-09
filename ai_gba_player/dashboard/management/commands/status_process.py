@@ -1,33 +1,48 @@
 """
-Django management command to check status of Pokemon AI system processes.
+Django management command to check status of AI GBA Player unified service.
 """
 
-import psutil
+import sys
 import time
+from pathlib import Path
 from django.core.management.base import BaseCommand
 from dashboard.models import Process
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
+# Import unified service
+project_root = Path(__file__).parent.parent.parent.parent.parent
+sys.path.append(str(project_root))
+sys.path.append(str(project_root / 'ai_gba_player'))
+
+try:
+    from core.unified_game_service import get_unified_service
+except ImportError:
+    try:
+        from ai_gba_player.core.unified_game_service import get_unified_service
+    except ImportError as e:
+        print(f"Failed to import unified service: {e}")
+        def get_unified_service(): raise ImportError("Unified service not available")
+
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = 'Check status of Pokemon AI system processes'
+    help = 'Check status of AI GBA Player system processes'
     
     def add_arguments(self, parser):
         parser.add_argument(
-            'process_name',
+            'service_name',
             nargs='?',
-            choices=['game_control', 'video_capture', 'knowledge_system', 'all'],
+            choices=['unified_service', 'all'],
             default='all',
-            help='Name of the process to check (default: all)'
+            help='Name of the service to check (default: all)'
         )
         parser.add_argument(
             '--update-db',
             action='store_true',
-            help='Update database with current process status'
+            help='Update database with current service status'
         )
         parser.add_argument(
             '--broadcast',
@@ -37,64 +52,41 @@ class Command(BaseCommand):
         parser.add_argument(
             '--detailed',
             action='store_true',
-            help='Show detailed process information'
+            help='Show detailed service information'
         )
     
     def handle(self, *args, **options):
-        process_name = options['process_name']
+        service_name = options['service_name']
         update_db = options['update_db']
         broadcast = options['broadcast']
         detailed = options['detailed']
         
-        self.stdout.write('🔍 Checking process status...')
+        self.stdout.write('🔍 Checking service status...')
         
-        if process_name == 'all':
-            self._check_all_processes(update_db, broadcast, detailed)
+        if service_name in ['unified_service', 'all']:
+            self._check_unified_service(update_db, broadcast, detailed)
         else:
-            self._check_single_process(process_name, update_db, broadcast, detailed)
+            self.stdout.write(self.style.ERROR(f'❌ Unknown service: {service_name}'))
     
-    def _check_all_processes(self, update_db, broadcast, detailed):
-        """Check status of all processes"""
-        processes = ['game_control', 'video_capture', 'knowledge_system']
+    def _check_unified_service(self, update_db, broadcast, detailed):
+        """Check status of unified service"""
+        service_name = 'unified_service'
         
-        self.stdout.write('\n📊 System Process Status')
+        self.stdout.write('\n📊 Unified Game Service Status')
         self.stdout.write('=' * 50)
         
-        all_status = {}
-        
-        for process_name in processes:
-            status = self._check_single_process(process_name, update_db, False, detailed)
-            all_status[process_name] = status
-        
-        # Show summary
-        self.stdout.write('\n📋 Summary:')
-        running_count = sum(1 for status in all_status.values() if status['status'] == 'running')
-        self.stdout.write(f'  Running: {running_count}/{len(processes)} processes')
-        
-        if running_count == len(processes):
-            self.stdout.write(self.style.SUCCESS('✅ All processes are running'))
-        elif running_count == 0:
-            self.stdout.write(self.style.ERROR('❌ No processes are running'))
-        else:
-            self.stdout.write(self.style.WARNING('⚠️ Some processes are not running'))
-        
-        # Broadcast all status if requested
-        if broadcast:
-            self._broadcast_all_status(all_status)
-    
-    def _check_single_process(self, process_name, update_db, broadcast, detailed):
-        """Check status of a single process"""
-        
         try:
-            process_obj = Process.objects.get(name=process_name)
+            process_obj = Process.objects.get(name=service_name)
         except Process.DoesNotExist:
-            self.stdout.write(
-                self.style.ERROR(f'❌ Process {process_name} not found in database')
+            # Create service record if it doesn't exist
+            process_obj = Process.objects.create(
+                name=service_name,
+                status='stopped'
             )
-            return {'status': 'unknown', 'error': 'Not found in database'}
+            self.stdout.write(f'📝 Created new service record for {service_name}')
         
-        # Check actual process status
-        actual_status = self._get_actual_process_status(process_obj)
+        # Get actual service status
+        actual_status = self._get_unified_service_status()
         
         # Display status
         status_icon = {
@@ -104,95 +96,68 @@ class Command(BaseCommand):
             'unknown': '❓'
         }.get(actual_status['status'], '❓')
         
-        self.stdout.write(f'\n🔧 {process_name.upper()}')
+        self.stdout.write(f'\n🔧 {service_name.upper()}')
         self.stdout.write(f'   Status: {status_icon} {actual_status["status"].title()}')
         
-        if actual_status['pid']:
-            self.stdout.write(f'   PID: {actual_status["pid"]}')
+        if detailed and actual_status['status'] == 'running':
+            service_info = actual_status.get('service_info', {})
+            self.stdout.write(f'   Video Thread: {"✅ Alive" if service_info.get("video_thread_alive") else "❌ Dead"}')
+            self.stdout.write(f'   Game Thread: {"✅ Alive" if service_info.get("game_thread_alive") else "❌ Dead"}')
             
-            if detailed and actual_status['status'] == 'running':
-                try:
-                    proc = psutil.Process(actual_status['pid'])
-                    self.stdout.write(f'   CPU: {proc.cpu_percent():.1f}%')
-                    mem_info = proc.memory_info()
-                    self.stdout.write(f'   Memory: {mem_info.rss / 1024 / 1024:.1f} MB')
-                    self.stdout.write(f'   Started: {time.ctime(proc.create_time())}')
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        
-        if process_obj.port:
-            self.stdout.write(f'   Port: {process_obj.port}')
+            video_status = service_info.get('video_capture', {})
+            if video_status:
+                self.stdout.write(f'   Video Frames: {video_status.get("frame_count", 0)}')
+                self.stdout.write(f'   Buffer Duration: {video_status.get("buffer_duration", 0):.1f}s')
         
         if actual_status.get('error'):
             self.stdout.write(f'   Error: {actual_status["error"]}')
         
-        if process_obj.last_error and actual_status['status'] == 'error':
-            self.stdout.write(f'   Last Error: {process_obj.last_error[:100]}...')
-        
         # Update database if requested
-        if update_db and (
-            process_obj.status != actual_status['status'] or 
-            process_obj.pid != actual_status['pid']
-        ):
+        if update_db and process_obj.status != actual_status['status']:
             process_obj.status = actual_status['status']
-            process_obj.pid = actual_status['pid']
             if actual_status.get('error'):
                 process_obj.last_error = actual_status['error'][:500]
             process_obj.save()
-            
             self.stdout.write('   📝 Updated database')
         
-        # Broadcast if requested
+        # Show summary
+        self.stdout.write('\n📋 Summary:')
+        if actual_status['status'] == 'running':
+            self.stdout.write(self.style.SUCCESS('✅ Unified service is running'))
+        elif actual_status['status'] == 'stopped':
+            self.stdout.write(self.style.WARNING('⏸️ Unified service is stopped'))
+        else:
+            self.stdout.write(self.style.ERROR(f'❌ Unified service status: {actual_status["status"]}'))
+        
+        # Broadcast status if requested
         if broadcast:
-            self._broadcast_process_status(process_name, actual_status)
-        
-        return actual_status
+            self._broadcast_service_status(service_name, actual_status)
     
-    def _get_actual_process_status(self, process_obj):
-        """Get the actual status of a process"""
-        
-        if not process_obj.pid:
-            return {
-                'status': 'stopped',
-                'pid': None
-            }
-        
+    def _get_unified_service_status(self):
+        """Get the actual status of the unified service"""
         try:
-            process = psutil.Process(process_obj.pid)
+            service = get_unified_service()
             
-            if process.is_running():
+            if service.running:
+                # Service is running, get detailed status
+                service_status = service.get_status()
                 return {
                     'status': 'running',
-                    'pid': process_obj.pid
+                    'service_info': service_status
                 }
             else:
                 return {
-                    'status': 'stopped',
-                    'pid': None,
-                    'error': 'Process is not running'
+                    'status': 'stopped'
                 }
                 
-        except psutil.NoSuchProcess:
-            return {
-                'status': 'stopped',
-                'pid': None,
-                'error': 'Process not found'
-            }
-        except psutil.AccessDenied:
-            return {
-                'status': 'unknown',
-                'pid': process_obj.pid,
-                'error': 'Access denied'
-            }
         except Exception as e:
             return {
                 'status': 'error',
-                'pid': process_obj.pid,
                 'error': str(e)
             }
     
-    def _broadcast_process_status(self, process_name, status):
-        """Broadcast single process status update"""
+    def _broadcast_service_status(self, service_name, status):
+        """Broadcast service status update"""
         try:
             channel_layer = get_channel_layer()
             if channel_layer:
@@ -201,11 +166,12 @@ class Command(BaseCommand):
                     'message': {
                         'system': {
                             'processes': {
-                                process_name: {
+                                service_name: {
                                     'status': status['status'],
-                                    'pid': status['pid'],
+                                    'pid': None,  # Unified service doesn't use PIDs
                                     'last_error': status.get('error', ''),
-                                    'updated_at': time.time()
+                                    'updated_at': time.time(),
+                                    'service_info': status.get('service_info', {})
                                 }
                             }
                         },
@@ -218,33 +184,3 @@ class Command(BaseCommand):
                 
         except Exception as e:
             self.stdout.write(f'   ⚠️ Failed to broadcast: {e}')
-    
-    def _broadcast_all_status(self, all_status):
-        """Broadcast all process status updates"""
-        try:
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                processes_status = {}
-                for process_name, status in all_status.items():
-                    processes_status[process_name] = {
-                        'status': status['status'],
-                        'pid': status['pid'],
-                        'last_error': status.get('error', ''),
-                        'updated_at': time.time()
-                    }
-                
-                message = {
-                    'type': 'system_status',
-                    'message': {
-                        'system': {
-                            'processes': processes_status
-                        },
-                        'timestamp': time.time()
-                    }
-                }
-                
-                async_to_sync(channel_layer.group_send)('dashboard', message)
-                self.stdout.write('\n📡 All status updates broadcasted')
-                
-        except Exception as e:
-            self.stdout.write(f'\n⚠️ Failed to broadcast all status: {e}')

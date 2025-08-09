@@ -13,9 +13,9 @@ The dashboard provides a comprehensive interface for monitoring and managing the
 
 ## Access URLs
 
-- **Frontend Dashboard**: http://localhost:5173
-- **Backend API**: http://127.0.0.1:3000
-- **WebSocket**: ws://127.0.0.1:3000/ws
+- **Django Dashboard**: http://localhost:8000
+- **Admin Panel**: http://localhost:8000/admin-panel/
+- **WebSocket**: ws://localhost:8000/ws/dashboard/
 
 ## Main Dashboard Interface
 
@@ -154,16 +154,18 @@ This automatically:
 4. Starts game control process
 5. Starts knowledge system process
 
-### Manual Startup (Development)
+### Manual Startup (Current System)
 ```bash
-# Start processes individually
-python video_capture_process.py --config config_emulator.json
-python game_control_process.py --config config_emulator.json
-python dashboard.py --config config_emulator.json
+# Start Django-based system
+cd ai_gba_player
+python manage.py runserver
+
+# Start unified service
+python manage.py start_process unified_service --config config_emulator.json
 ```
 
 ### Dashboard Access
-1. Open browser to http://localhost:5173
+1. Open browser to http://localhost:8000
 2. Main dashboard shows AI activity in real-time
 3. Click ⚙️ Admin tab for process management
 4. Use admin controls to start/stop/restart processes

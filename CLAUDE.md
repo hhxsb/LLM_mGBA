@@ -11,30 +11,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Key Innovations**: 
 - **AI GBA Player Web Interface** - Modern Django-based web interface with real-time monitoring
 - **Universal game framework** designed to play any GBA game, not just Pokémon
-- **Professional process management** with health monitoring and admin controls
+- **Unified threaded architecture** with integrated video capture and game control
 - **WebSocket streaming** for real-time AI decisions, GIFs, and system status
-- **Dual-process architecture** with optimized video capture and game control processes
+- **Simplified deployment** - single Django process with threading instead of multiple processes
 - **Extensible game modules** allowing easy addition of new games and AI behaviors
 
 ## Core Architecture
 
-### Four-Layer System with AI GBA Player Web Interface
+### Three-Layer Unified System with AI GBA Player Web Interface
 1. **mGBA Emulator + Lua Script** (`emulator/script.lua`) - Game interface layer
-2. **Video Capture Process** (`video_capture_process.py`) - Rolling video buffer with GIF generation
-3. **Game Control Process** (`game_control_process.py`) - AI decision-making and emulator communication
-4. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django-based web interface with real-time monitoring and process management
+2. **Unified Game Service** (`ai_gba_player/core/unified_game_service.py`) - Threaded video capture and AI decision-making
+3. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django-based web interface with real-time monitoring
 
 ### Enhanced Data Flow
 ```
-Emulator → Lua Script → Game Control Process → Knowledge System → Enhanced Context → LLM → Button Commands → Back to Emulator
+Emulator → Lua Script → Game Control Thread → Knowledge System → Enhanced Context → LLM → Button Commands → Back to Emulator
                 ↓                                    ↑
-        Video Capture Process ← Screenshot Requests  │
+        Video Capture Thread ← Screenshot Requests   │
                 ↓                                    │
         AI GBA Player Interface ← WebSocket Streaming ───┘
                 (GIFs, AI Responses, Actions)
 ```
 
-The system uses a dual-process architecture with rolling video buffers, real-time web interface integration via WebSocket streaming, and **intelligent context management** that provides the LLM with optimally prioritized information for decision-making.
+The system uses a **unified threaded architecture** with rolling video buffers, real-time web interface integration via WebSocket streaming, and **intelligent context management** that provides the LLM with optimally prioritized information for decision-making.
 
 ## Knowledge System Architecture
 
@@ -87,18 +86,17 @@ pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv o
 cd ai_gba_player
 python manage.py runserver
 
-# Launch game processes via web interface or command line
-python manage.py start_process all --config config_emulator.json
+# Launch unified service via web interface or command line
+python manage.py start_process unified_service --config config_emulator.json
 
-# Alternative: Manual startup for development
-python video_capture_process.py --config config_emulator.json
-python game_control_process.py --config config_emulator.json
+# Alternative: Direct startup for development (deprecated - use Django commands)
+python -m ai_gba_player.core.unified_game_service --config config_emulator.json
 ```
 
 ### Setup Sequence (CRITICAL ORDER)
 1. Start mGBA and load any GBA ROM (currently optimized for Pokémon Red)
 2. **Recommended**: Start AI GBA Player: `cd ai_gba_player && python manage.py runserver`
-3. **Alternative**: Manual startup: Start video capture, then game control processes
+3. **Start unified service**: `python manage.py start_process unified_service`
 4. Update project path in `emulator/script.lua` if needed
 5. In mGBA: Tools > Script Viewer > Load `emulator/script.lua`
 
@@ -150,8 +148,6 @@ LLM_mGBA/
 │   │       └── js/dashboard.js        # Dashboard JavaScript
 │   └── management/                    # Django management commands
 │       └── commands/                  # Process control commands
-├── video_capture_process.py           # Video capture with rolling buffer
-├── game_control_process.py            # AI decision-making process
 ├── config_emulator.json               # Main configuration file
 ├── core/                              # Core system components
 │   ├── base_knowledge_system.py       # Knowledge management system (80+ methods)
@@ -191,23 +187,26 @@ LLM_mGBA/
 - **Paths**: Screenshot, notepad, and prompt template paths
 - **Timing**: `decision_cooldown` controls rate limiting (3-6 seconds recommended)
 - **Debug**: `debug_mode` for verbose logging
-- **Dual Process**: `dual_process_mode` configuration for video capture and process communication
+- **Unified Service**: `unified_service` configuration for threaded architecture
 - **Dashboard**: `dashboard` configuration for WebSocket and admin features
 
-### Dashboard Configuration
+### Service Configuration
 ```json
 {
   "dashboard": {
     "enabled": true,
     "port": 3000,
-    "websocket_port": 3001,
+    "websocket_port": 3000,
     "auto_start_processes": true,
     "theme": "pokemon"
   },
-  "dual_process_mode": {
+  "unified_service": {
     "enabled": true,
-    "video_capture_port": 8889,
-    "rolling_window_seconds": 20
+    "thread_startup_delay": 2,
+    "thread_communication_timeout": 30
+  },
+  "dual_process_mode": {
+    "enabled": false
   }
 }
 ```
@@ -459,17 +458,17 @@ python knowledge_inspector.py
 ## Architecture Considerations
 
 The system is designed as a **sophisticated AI gaming agent** with these key principles:
-- **Dual-Process Architecture**: Separate video capture and game control for optimal performance
+- **Unified Threaded Architecture**: Integrated video capture and game control in single process for optimal performance
 - **Real-time Dashboard**: Unified monitoring with WebSocket streaming and admin controls
-- **Process Management**: Dependency-aware startup, health monitoring, and error recovery
+- **Thread Management**: Coordinated startup, health monitoring, and error recovery
 - **Advanced Memory Management**: Comprehensive conversation and character state tracking
 - **Intelligent Context Delivery**: Smart prioritization ensures optimal LLM performance
-- **Modular Design**: Clear separation between emulator, video, control, knowledge, and dashboard layers
+- **Modular Design**: Clear separation between emulator, threads, knowledge, and dashboard layers
 - **Extensible Architecture**: Knowledge system easily adaptable to other games
 - **Robust Error Recovery**: Graceful degradation, persistence, and admin controls throughout
-- **User-Friendly**: Unified dashboard eliminates complex manual setup procedures
+- **User-Friendly**: Simplified deployment with single Django process
 - **Comprehensive Testing**: Full test coverage for all knowledge features and system integration
 
-The system represents a **breakthrough in universal AI gaming**, combining sophisticated LLM capabilities with modern process architecture, real-time monitoring, and extensible game support - providing a complete framework for AI game-playing research across multiple titles and genres.
+The system represents a **breakthrough in universal AI gaming**, combining sophisticated LLM capabilities with modern threaded architecture, real-time monitoring, and extensible game support - providing a complete framework for AI game-playing research across multiple titles and genres.
 
 **Credits**: This framework builds upon the excellent foundational work of [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red), extending it into a universal GBA gaming platform with enhanced monitoring, process management, and multi-game capabilities.

@@ -1,0 +1,415 @@
+/* GBA Universal Theme */
+
+:root {
+    /* GBA Color Palette - Inspired by Game Boy Advance hardware */
+    --gba-purple: #6B46C1;      /* GBA purple shell */
+    --gba-blue: #1E40AF;        /* GBA blue shell */
+    --gba-teal: #0F766E;        /* Classic teal */
+    --gba-orange: #EA580C;      /* GBA orange/red accent */
+    --gba-green: #059669;       /* Classic green */
+    --gba-gray: #6B7280;        /* Hardware gray */
+    
+    /* Screen colors */
+    --gba-screen-bg: #1F2937;   /* Dark screen background */
+    --gba-screen-green: #10B981; /* LCD green tint */
+    --gba-screen-amber: #F59E0B; /* LCD amber alternative */
+    
+    /* Text and UI */
+    --text-primary: #1F2937;
+    --text-secondary: #4B5563;
+    --text-muted: #9CA3AF;
+    --text-light: #F9FAFB;
+    
+    /* Backgrounds */
+    --bg-primary: rgba(255, 255, 255, 0.95);
+    --bg-secondary: rgba(255, 255, 255, 0.85);
+    --bg-accent: rgba(107, 70, 193, 0.1);
+    --bg-dark: #111827;
+}
+
+/* GBA-themed Background */
+body {
+    background: linear-gradient(135deg, 
+        #6B46C1 0%,      /* GBA Purple */
+        #1E40AF 25%,     /* GBA Blue */
+        #0F766E 50%,     /* Teal */
+        #059669 75%,     /* Green */
+        #EA580C 100%);   /* Orange accent */
+    background-size: 400% 400%;
+    animation: gbaGradientShift 20s ease infinite;
+}
+
+@keyframes gbaGradientShift {
+    0% { background-position: 0% 50%; }
+    25% { background-position: 100% 0%; }
+    50% { background-position: 100% 50%; }
+    75% { background-position: 0% 100%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Enhanced Navigation with GBA styling */
+.navbar {
+    background: linear-gradient(90deg, 
+        rgba(107, 70, 193, 0.95) 0%,    /* GBA Purple */
+        rgba(30, 64, 175, 0.95) 50%,    /* GBA Blue */
+        rgba(15, 118, 110, 0.95) 100%); /* Teal */
+    border-bottom: 3px solid var(--gba-orange);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.nav-brand h1 {
+    background: linear-gradient(45deg, 
+        var(--gba-orange), 
+        var(--gba-screen-green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    font-weight: 800;
+}
+
+.nav-link {
+    background: rgba(255, 255, 255, 0.15);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+    color: white;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    border-color: var(--gba-orange);
+}
+
+.nav-link.active {
+    background: var(--gba-orange);
+    color: white;
+    border-color: var(--gba-screen-green);
+    box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
+}
+
+/* Connection Status with GBA style */
+.connection-status {
+    background: rgba(255, 255, 255, 0.15);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    font-weight: 600;
+}
+
+/* Enhanced Status Cards with GBA styling */
+.status-card {
+    border-left-width: 6px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+.status-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, 
+        transparent 30%, 
+        rgba(255, 255, 255, 0.1) 50%, 
+        transparent 70%);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+
+.status-card:hover::before {
+    transform: translateX(100%);
+}
+
+.status-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+}
+
+/* GBA-themed Status Indicators */
+.status-card:nth-child(1) { 
+    border-left-color: var(--gba-purple);
+    background: linear-gradient(135deg, rgba(107, 70, 193, 0.08), rgba(255, 255, 255, 0.95));
+}
+.status-card:nth-child(2) { 
+    border-left-color: var(--gba-blue);
+    background: linear-gradient(135deg, rgba(30, 64, 175, 0.08), rgba(255, 255, 255, 0.95));
+}
+.status-card:nth-child(3) { 
+    border-left-color: var(--gba-teal);
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(255, 255, 255, 0.95));
+}
+.status-card:nth-child(4) { 
+    border-left-color: var(--gba-green);
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+/* Message Type Colors with GBA palette */
+.gif-message {
+    border-left-color: var(--gba-orange);
+    background: linear-gradient(135deg, rgba(234, 88, 12, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+.screenshots-message {
+    border-left-color: var(--gba-green);
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+.response-message {
+    border-left-color: var(--gba-blue);
+    background: linear-gradient(135deg, rgba(30, 64, 175, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+.action-message {
+    border-left-color: var(--gba-purple);
+    background: linear-gradient(135deg, rgba(107, 70, 193, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+.system-message {
+    border-left-color: var(--gba-orange);
+    background: linear-gradient(135deg, rgba(234, 88, 12, 0.08), rgba(255, 255, 255, 0.95));
+}
+
+/* Enhanced Buttons with GBA style */
+.btn {
+    position: relative;
+    overflow: hidden;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 8px;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+}
+
+.btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.btn-clear {
+    background: linear-gradient(45deg, var(--gba-orange), #f97316);
+    color: white;
+    border: 2px solid var(--gba-orange);
+}
+
+.btn-export {
+    background: linear-gradient(45deg, var(--gba-blue), #3b82f6);
+    color: white;
+    border: 2px solid var(--gba-blue);
+}
+
+/* Action Buttons (GBA Button Style) */
+.action-button {
+    background: linear-gradient(45deg, var(--gba-green), #10b981);
+    color: white;
+    border: 2px solid var(--gba-green);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.action-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(5, 150, 105, 0.35);
+}
+
+/* Message Animations */
+@keyframes messageSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message {
+    animation: messageSlideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* GBA Loading Animation */
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    background: conic-gradient(
+        var(--gba-purple) 0deg 90deg,
+        var(--gba-blue) 90deg 180deg,
+        var(--gba-teal) 180deg 270deg,
+        var(--gba-orange) 270deg 360deg
+    );
+    border: 3px solid white;
+    border-radius: 50%;
+    animation: gbaSpinLoader 1.5s linear infinite;
+    box-shadow: 0 0 0 2px var(--text-primary);
+}
+
+.loading::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    background: var(--gba-screen-green);
+    border: 2px solid var(--text-primary);
+    border-radius: 50%;
+    z-index: 1;
+}
+
+@keyframes gbaSpinLoader {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Welcome Message Enhancement */
+.message-welcome {
+    background: linear-gradient(135deg, 
+        rgba(107, 70, 193, 0.08),
+        rgba(30, 64, 175, 0.08),
+        rgba(234, 88, 12, 0.08));
+    border-radius: 12px;
+    border: 2px dashed rgba(107, 70, 193, 0.3);
+}
+
+.welcome-icon {
+    animation: gbaFloat 3s ease-in-out infinite;
+}
+
+@keyframes gbaFloat {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+/* Reasoning Section Enhancement */
+.response-reasoning summary {
+    background: linear-gradient(45deg, 
+        rgba(30, 64, 175, 0.1),
+        rgba(107, 70, 193, 0.1));
+    border: 1px solid rgba(30, 64, 175, 0.3);
+}
+
+.reasoning-content {
+    background: linear-gradient(135deg, 
+        rgba(30, 64, 175, 0.08),
+        rgba(255, 255, 255, 0.95));
+    border: 1px solid rgba(30, 64, 175, 0.3);
+}
+
+/* Footer Enhancement */
+.footer {
+    background: linear-gradient(90deg, 
+        rgba(107, 70, 193, 0.95) 0%,
+        rgba(30, 64, 175, 0.95) 50%,
+        rgba(15, 118, 110, 0.95) 100%);
+    color: white;
+}
+
+.footer-content {
+    color: white;
+}
+
+/* Process Status Colors */
+.status-running { color: var(--gba-green); }
+.status-stopped { color: var(--gba-orange); }
+.status-starting { color: var(--gba-blue); }
+.status-error { color: var(--gba-orange); }
+
+/* Admin Panel Specific Styles */
+.admin-panel {
+    background: linear-gradient(135deg, 
+        rgba(107, 70, 193, 0.05),
+        rgba(255, 255, 255, 0.95));
+}
+
+.admin-card {
+    border-left-color: var(--gba-purple);
+    background: linear-gradient(135deg, 
+        rgba(107, 70, 193, 0.05),
+        rgba(255, 255, 255, 0.9));
+}
+
+/* GBA Screen-like effects for game content */
+.game-screen {
+    background: var(--gba-screen-bg);
+    border: 4px solid var(--gba-gray);
+    border-radius: 8px;
+    box-shadow: 
+        inset 0 0 10px rgba(0, 0, 0, 0.3),
+        0 4px 20px rgba(0, 0, 0, 0.15);
+    position: relative;
+}
+
+.game-screen::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 1px,
+        rgba(16, 185, 129, 0.03) 1px,
+        rgba(16, 185, 129, 0.03) 2px
+    );
+    pointer-events: none;
+}
+
+/* Hover Effects for Cards */
+.status-card:hover,
+.message:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive GBA Theme */
+@media (max-width: 768px) {
+    .nav-brand h1 {
+        font-size: 1.25rem;
+    }
+    
+    .action-buttons {
+        justify-content: center;
+    }
+    
+    .welcome-icon {
+        font-size: 3rem;
+    }
+}

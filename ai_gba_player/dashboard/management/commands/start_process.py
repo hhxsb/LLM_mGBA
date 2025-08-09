@@ -1,5 +1,5 @@
 """
-Django management command to start Pokemon AI system processes.
+Django management command to start AI GBA Player unified service.
 """
 
 import subprocess
@@ -15,17 +15,33 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
+# Import unified service  
+project_root = Path(__file__).parent.parent.parent.parent.parent
+sys.path.append(str(project_root))
+sys.path.append(str(project_root / 'ai_gba_player'))
+
+try:
+    from core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
+except ImportError:
+    try:
+        from ai_gba_player.core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
+    except ImportError as e:
+        print(f"Failed to import unified service: {e}")
+        def get_unified_service(): raise ImportError("Unified service not available")
+        def start_unified_service(config_path): raise ImportError("Unified service not available") 
+        def stop_unified_service(): raise ImportError("Unified service not available")
+
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = 'Start Pokemon AI system processes'
+    help = 'Start AI GBA Player system processes'
     
     def add_arguments(self, parser):
         parser.add_argument(
             'process_name',
-            choices=['game_control', 'video_capture', 'knowledge_system', 'all'],
-            help='Name of the process to start'
+            choices=['unified_service', 'all'],
+            help='Name of the service to start'
         )
         parser.add_argument(
             '--config',
@@ -36,20 +52,13 @@ class Command(BaseCommand):
         parser.add_argument(
             '--force',
             action='store_true',
-            help='Force start even if process is already running'
-        )
-        parser.add_argument(
-            '--wait',
-            type=int,
-            default=5,
-            help='Wait time between process starts (seconds)'
+            help='Force start even if service is already running'
         )
     
     def handle(self, *args, **options):
-        process_name = options['process_name']
+        service_name = options['process_name']
         config_file = options['config']
         force = options['force']
-        wait_time = options['wait']
         
         # Get project root directory
         project_root = Path(__file__).parent.parent.parent.parent.parent
@@ -58,50 +67,33 @@ class Command(BaseCommand):
         if not config_path.exists():
             raise CommandError(f'Config file not found: {config_path}')
         
-        self.stdout.write(f'🚀 Starting process: {process_name}')
+        self.stdout.write(f'🚀 Starting service: {service_name}')
         self.stdout.write(f'📁 Project root: {project_root}')
         self.stdout.write(f'⚙️ Config file: {config_path}')
         
-        if process_name == 'all':
-            self._start_all_processes(project_root, config_path, force, wait_time)
+        if service_name in ['unified_service', 'all']:
+            self._start_unified_service(str(config_path), force)
         else:
-            self._start_single_process(process_name, project_root, config_path, force)
+            raise CommandError(f'Unknown service: {service_name}')
     
-    def _start_all_processes(self, project_root, config_path, force, wait_time):
-        """Start all processes in dependency order"""
-        processes = ['video_capture', 'game_control']  # knowledge_system is integrated into game_control
+    def _start_unified_service(self, config_path: str, force: bool):
+        """Start the unified service."""
+        service_name = 'unified_service'
         
-        for process_name in processes:
-            try:
-                self._start_single_process(process_name, project_root, config_path, force)
-                if wait_time > 0:
-                    self.stdout.write(f'⏱️ Waiting {wait_time}s before starting next process...')
-                    time.sleep(wait_time)
-            except Exception as e:
-                self.stdout.write(
-                    self.style.ERROR(f'❌ Failed to start {process_name}: {e}')
-                )
-                # Continue with other processes
-                continue
-        
-        self.stdout.write(self.style.SUCCESS('✅ All processes start sequence completed'))
-    
-    def _start_single_process(self, process_name, project_root, config_path, force):
-        """Start a single process"""
-        
-        # Check if process is already running
+        # Check if service is already running
         try:
-            process_obj = Process.objects.get(name=process_name)
-            if not force and process_obj.status == 'running' and process_obj.pid:
-                if self._is_process_running(process_obj.pid):
+            process_obj = Process.objects.get(name=service_name)
+            if not force and process_obj.status == 'running':
+                service = get_unified_service()
+                if service.running:
                     self.stdout.write(
-                        self.style.WARNING(f'⚠️ Process {process_name} is already running (PID: {process_obj.pid})')
+                        self.style.WARNING(f'⚠️ Unified service is already running')
                     )
                     return
         except Process.DoesNotExist:
             # Create process record if it doesn't exist
             process_obj = Process.objects.create(
-                name=process_name,
+                name=service_name,
                 status='stopped'
             )
         
@@ -111,54 +103,40 @@ class Command(BaseCommand):
         process_obj.save()
         
         # Broadcast status update
-        self._broadcast_process_status(process_name, 'starting')
+        self._broadcast_process_status(service_name, 'starting')
         
         try:
-            # Get process command and start it
-            script_path, args = self._get_process_command(process_name, project_root, config_path)
+            self.stdout.write(f'🚀 Starting unified service with config: {config_path}')
             
-            self.stdout.write(f'📜 Running: {script_path} {" ".join(args)}')
+            # Start the unified service
+            success = start_unified_service(config_path)
             
-            # Start the process
-            process = subprocess.Popen(
-                [sys.executable, str(script_path)] + args,
-                cwd=str(project_root),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=None if sys.platform == "win32" else lambda: None
-            )
-            
-            # Wait a moment to see if process starts successfully
-            time.sleep(2)
-            
-            if process.poll() is None:
-                # Process is running
-                process_obj.pid = process.pid
+            if success:
+                # Service started successfully
                 process_obj.status = 'running'
                 process_obj.save()
                 
                 self.stdout.write(
-                    self.style.SUCCESS(f'✅ Started {process_name} (PID: {process.pid})')
+                    self.style.SUCCESS(f'✅ Started unified service successfully')
                 )
                 
                 # Broadcast success
-                self._broadcast_process_status(process_name, 'running', process.pid)
+                self._broadcast_process_status(service_name, 'running')
                 
             else:
-                # Process failed to start
-                stdout, stderr = process.communicate()
-                error_msg = stderr.decode() if stderr else 'Process failed to start'
+                # Service failed to start
+                error_msg = 'Unified service failed to start'
                 
                 process_obj.status = 'error'
-                process_obj.last_error = error_msg[:500]  # Limit error message length
+                process_obj.last_error = error_msg
                 process_obj.save()
                 
                 self.stdout.write(
-                    self.style.ERROR(f'❌ Failed to start {process_name}: {error_msg}')
+                    self.style.ERROR(f'❌ Failed to start unified service: {error_msg}')
                 )
                 
                 # Broadcast error
-                self._broadcast_process_status(process_name, 'error', error=error_msg)
+                self._broadcast_process_status(service_name, 'error', error=error_msg)
                 
         except Exception as e:
             process_obj.status = 'error'
@@ -166,47 +144,13 @@ class Command(BaseCommand):
             process_obj.save()
             
             self.stdout.write(
-                self.style.ERROR(f'❌ Exception starting {process_name}: {e}')
+                self.style.ERROR(f'❌ Exception starting unified service: {e}')
             )
             
             # Broadcast error
-            self._broadcast_process_status(process_name, 'error', error=str(e))
-            raise CommandError(f'Failed to start {process_name}: {e}')
+            self._broadcast_process_status(service_name, 'error', error=str(e))
+            raise CommandError(f'Failed to start unified service: {e}')
     
-    def _get_process_command(self, process_name, project_root, config_path):
-        """Get the command to run for each process"""
-        commands = {
-            'video_capture': (
-                project_root / 'video_capture_process.py',
-                ['--config', str(config_path)]
-            ),
-            'game_control': (
-                project_root / 'game_control_process.py', 
-                ['--config', str(config_path)]
-            ),
-            'knowledge_system': (
-                project_root / 'core' / 'base_knowledge_system.py',  # Use base knowledge system
-                []
-            )
-        }
-        
-        if process_name not in commands:
-            raise CommandError(f'Unknown process: {process_name}')
-        
-        script_path, args = commands[process_name]
-        
-        if not script_path.exists():
-            raise CommandError(f'Process script not found: {script_path}')
-        
-        return script_path, args
-    
-    def _is_process_running(self, pid):
-        """Check if a process is running by PID"""
-        try:
-            process = psutil.Process(pid)
-            return process.is_running()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return False
     
     def _broadcast_process_status(self, process_name, status, pid=None, error=None):
         """Broadcast process status update via Django Channels"""

@@ -62,39 +62,44 @@ class Command(BaseCommand):
         self.stdout.write('3. Visit http://localhost:8000 to access the dashboard')
     
     def _create_initial_processes(self):
-        """Create initial process records for Pokemon AI system"""
-        processes = [
+        """Create initial service records for AI GBA Player unified service"""
+        services = [
             {
-                'name': 'game_control',
+                'name': 'unified_service',
                 'status': 'stopped',
-                'port': 8888
-            },
-            {
-                'name': 'video_capture', 
-                'status': 'stopped',
-                'port': 8889
-            },
-            {
-                'name': 'knowledge_system',
-                'status': 'stopped',
-                'port': None
+                'port': None  # Unified service doesn't use a specific port
             }
         ]
         
+        # Clean up old process records if they exist
+        old_processes = ['game_control', 'video_capture', 'knowledge_system']
+        removed_count = 0
+        for old_process in old_processes:
+            try:
+                old_record = Process.objects.get(name=old_process)
+                old_record.delete()
+                removed_count += 1
+                self.stdout.write(f'  🗑️ Removed old process record: {old_process}')
+            except Process.DoesNotExist:
+                pass
+        
+        if removed_count > 0:
+            self.stdout.write(self.style.SUCCESS(f'✅ Cleaned up {removed_count} old process records'))
+        
         created_count = 0
-        for process_data in processes:
-            process, created = Process.objects.get_or_create(
-                name=process_data['name'],
+        for service_data in services:
+            service, created = Process.objects.get_or_create(
+                name=service_data['name'],
                 defaults={
-                    'status': process_data['status'],
-                    'port': process_data['port']
+                    'status': service_data['status'],
+                    'port': service_data['port']
                 }
             )
             
             if created:
                 created_count += 1
-                self.stdout.write(f'  ✅ Created process: {process_data["name"]}')
+                self.stdout.write(f'  ✅ Created service: {service_data["name"]}')
             else:
-                self.stdout.write(f'  ℹ️ Process already exists: {process_data["name"]}')
+                self.stdout.write(f'  ℹ️ Service already exists: {service_data["name"]}')
         
-        self.stdout.write(self.style.SUCCESS(f'✅ Created {created_count} new process records'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Created {created_count} new service records'))
