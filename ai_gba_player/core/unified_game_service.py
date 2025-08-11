@@ -492,8 +492,8 @@ class UnifiedGameService:
     
     def _integrate_threaded_video_capture(self):
         """Integrate threaded video capture with game controller."""
-        # Monkey patch the controller to use our threaded video capture
-        original_make_decision = self.game_thread.controller._make_decision_from_video_process
+        # Store original method if it exists  
+        original_make_decision = getattr(self.game_thread.controller, '_make_decision_from_video_process', None)
         
         def threaded_make_decision():
             """Make AI decision using GIF from video thread."""
@@ -556,7 +556,7 @@ class UnifiedGameService:
                 self.logger.error(f"Error making decision from video thread: {e}")
                 return None
         
-        # Replace the method
+        # Add the method to the controller
         self.game_thread.controller._make_decision_from_video_process = threaded_make_decision
     
     def get_status(self) -> Dict[str, Any]:
