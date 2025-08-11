@@ -10,26 +10,19 @@ import psutil
 from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
-from dashboard.models import Process
+from dashboard.models import Process, Configuration
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
-# Import unified service  
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.append(str(project_root))
-sys.path.append(str(project_root / 'ai_gba_player'))
-
+# Import unified service using relative path within Django project
 try:
     from core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
-except ImportError:
-    try:
-        from ai_gba_player.core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
-    except ImportError as e:
-        print(f"Failed to import unified service: {e}")
-        def get_unified_service(): raise ImportError("Unified service not available")
-        def start_unified_service(config_path): raise ImportError("Unified service not available") 
-        def stop_unified_service(): raise ImportError("Unified service not available")
+except ImportError as e:
+    print(f"⚠️ Warning: Could not import unified service: {e}")
+    def get_unified_service(): raise ImportError("Unified service not available")
+    def start_unified_service(config_path): raise ImportError("Unified service not available") 
+    def stop_unified_service(): raise ImportError("Unified service not available")
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +39,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--config',
             type=str,
-            default='config_emulator.json',
-            help='Configuration file to use'
+            help='Configuration file to use (optional - will use database config if not provided)'
         )
         parser.add_argument(
             '--force',
@@ -62,21 +54,30 @@ class Command(BaseCommand):
         
         # Get project root directory
         project_root = Path(__file__).parent.parent.parent.parent.parent
-        config_path = project_root / config_file
         
-        if not config_path.exists():
-            raise CommandError(f'Config file not found: {config_path}')
+        # Use database configuration unless JSON file is explicitly provided
+        if config_file:
+            config_path = project_root / config_file
+            if not config_path.exists():
+                raise CommandError(f'Config file not found: {config_path}')
+            config_source = f'JSON file: {config_path}'
+            use_db_config = False
+        else:
+            # Use database configuration
+            config_path = None
+            config_source = 'database configuration'
+            use_db_config = True
         
         self.stdout.write(f'🚀 Starting service: {service_name}')
         self.stdout.write(f'📁 Project root: {project_root}')
-        self.stdout.write(f'⚙️ Config file: {config_path}')
+        self.stdout.write(f'⚙️ Config source: {config_source}')
         
         if service_name in ['unified_service', 'all']:
-            self._start_unified_service(str(config_path), force)
+            self._start_unified_service(config_path, force, use_db_config)
         else:
             raise CommandError(f'Unknown service: {service_name}')
     
-    def _start_unified_service(self, config_path: str, force: bool):
+    def _start_unified_service(self, config_path: str, force: bool, use_db_config: bool):
         """Start the unified service."""
         service_name = 'unified_service'
         
@@ -106,10 +107,24 @@ class Command(BaseCommand):
         self._broadcast_process_status(service_name, 'starting')
         
         try:
-            self.stdout.write(f'🚀 Starting unified service with config: {config_path}')
+            if use_db_config:
+                # Get configuration from database
+                try:
+                    db_config = Configuration.get_config()
+                    config_dict = db_config.to_dict()
+                    self.stdout.write('🚀 Starting unified service with database configuration')
+                except Exception as e:
+                    raise CommandError(f'Failed to get database configuration: {e}')
+            else:
+                # Use JSON file configuration
+                self.stdout.write(f'🚀 Starting unified service with config: {config_path}')
+                config_dict = None  # Will be loaded by start_unified_service from file
             
             # Start the unified service
-            success = start_unified_service(config_path)
+            if use_db_config:
+                success = start_unified_service(config_dict)
+            else:
+                success = start_unified_service(config_path)
             
             if success:
                 # Service started successfully

@@ -1,0 +1,1401 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}ROM Configuration{% endblock %}
+
+{% block content %}
+<div class="admin-panel">
+    <div class="panel-section">
+        <div class="section-header">
+            <h2>🎮 ROM Configurations</h2>
+            <button onclick="showAddRomModal()" class="action-btn success">
+                <span class="btn-icon">➕</span>
+                Add ROM
+            </button>
+        </div>
+        
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        {% if roms %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Display Name</th>
+                            <th>Game Type</th>
+                            <th>ROM File</th>
+                            <th>mGBA File</th>
+                            <th>Last Used</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rom in roms %}
+                            <tr>
+                                <td><strong>{{ rom.display_name }}</strong></td>
+                                <td>{{ rom.game_type }}</td>
+                                <td>
+                                    <span class="path-text">{{ rom.rom_file.original_name|default:"-" }}</span>
+                                </td>
+                                <td>
+                                    <span class="path-text">
+                                        {% if rom.mgba_file %}
+                                            {{ rom.mgba_file.original_name }}
+                                        {% else %}
+                                            <em>Auto-detect</em>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if rom.last_used %}
+                                        {{ rom.last_used|timesince }} ago
+                                    {% else %}
+                                        <em>Never</em>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button onclick="launchMGBA({{ rom.id }})" class="action-btn primary" title="Launch mGBA">
+                                            🚀 Launch
+                                        </button>
+                                        <button onclick="editRom({{ rom.id }})" class="action-btn" title="Edit ROM">
+                                            ✏️ Edit
+                                        </button>
+                                        <button onclick="deleteRom({{ rom.id }}, '{{ rom.name|escapejs }}')" class="action-btn danger" title="Delete ROM">
+                                            🗑️ Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <h3>No ROM configurations found</h3>
+                <p>Add your first ROM configuration to get started.</p>
+                <button onclick="showAddRomModal()" class="action-btn success">
+                    <span class="btn-icon">➕</span>
+                    Add First ROM
+                </button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add/Edit ROM Modal -->
+<div id="romModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">Add ROM Configuration</h3>
+            <span class="close" onclick="closeRomModal()">&times;</span>
+        </div>
+        
+        <div id="romUploadForm">
+            {% csrf_token %}
+            
+            <div class="upload-section">
+                <h4>📁 Upload Files</h4>
+                
+                <div class="file-upload-group">
+                    <label for="romFile">ROM File (Required) *</label>
+                    <div class="upload-container">
+                        <input type="file" id="romFile" accept=".gba,.gbc,.gb,.rom" required>
+                        <div class="upload-info">
+                            <span class="file-name" id="romFileName">No file selected</span>
+                            <span class="file-size" id="romFileSize"></span>
+                        </div>
+                    </div>
+                    <small>Select your GBA ROM file (.gba, .gbc, .gb, .rom)</small>
+                </div>
+                
+                <div class="file-upload-group">
+                    <label for="mgbaFile">mGBA Executable (Optional)</label>
+                    <div class="upload-container">
+                        <input type="file" id="mgbaFile" accept=".exe,.app,.bin">
+                        <div class="upload-info">
+                            <span class="file-name" id="mgbaFileName">No file selected - will auto-detect</span>
+                            <span class="file-size" id="mgbaFileSize"></span>
+                        </div>
+                    </div>
+                    <small>Select mGBA executable (optional - will auto-detect common locations if not provided)</small>
+                </div>
+                
+                <div class="file-upload-group">
+                    <label for="scriptFile">Lua Script (Optional)</label>
+                    <div class="upload-container">
+                        <input type="file" id="scriptFile" accept=".lua">
+                        <div class="upload-info">
+                            <span class="file-name" id="scriptFileName">No file selected - will use default</span>
+                            <span class="file-size" id="scriptFileSize"></span>
+                        </div>
+                    </div>
+                    <small>Select Lua script (optional - will use emulator/script.lua if not provided)</small>
+                </div>
+            </div>
+            
+            <div class="auto-generation-info">
+                <h4>⚙️ Auto-Generation</h4>
+                <p>Display name and game type will be automatically generated from the ROM filename.</p>
+                <div id="previewInfo" class="preview-info" style="display: none;">
+                    <strong>Preview:</strong>
+                    <div>Display Name: <span id="previewName">-</span></div>
+                    <div>Game Type: <span id="previewGameType">-</span></div>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="button" onclick="closeRomModal()" class="action-btn">Cancel</button>
+                <button type="button" onclick="createRomConfiguration()" class="action-btn success" id="createRomBtn" disabled>Create ROM Configuration</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<style>
+.table-container {
+    overflow-x: auto;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px;
+}
+
+.data-table th,
+.data-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.data-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #333;
+}
+
+.path-text {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.empty-state h3 {
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: #888;
+    margin-bottom: 20px;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: white;
+    margin: 5% auto;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.close {
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+}
+
+.close:hover {
+    color: #333;
+}
+
+.form-group {
+    padding: 0 20px;
+    margin-bottom: 20px;
+}
+
+.form-group:first-of-type {
+    padding-top: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input[type="text"],
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+    font-size: 12px;
+}
+
+.checkbox-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    margin-bottom: 5px !important;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.form-actions {
+    padding: 20px;
+    border-top: 1px solid #e0e0e0;
+    text-align: right;
+}
+
+.form-actions .action-btn {
+    margin-left: 10px;
+}
+
+.alert {
+    padding: 12px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.alert.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+/* Path input groups with browse buttons */
+.path-input-group {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.path-input-group input {
+    flex: 1;
+}
+
+.browse-btn {
+    background: #17a2b8;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 0.85em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s;
+}
+
+.browse-btn:hover {
+    background: #138496;
+}
+
+/* File upload styles */
+.upload-section {
+    padding: 0 20px 20px 20px;
+}
+
+.upload-section h4 {
+    color: #333;
+    margin-bottom: 15px;
+    border-bottom: 2px solid #007bff;
+    padding-bottom: 5px;
+}
+
+.file-upload-group {
+    margin-bottom: 20px;
+}
+
+.file-upload-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+.upload-container {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    background: #f9f9f9;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.upload-container:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.upload-container input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+.upload-info {
+    margin-top: 8px;
+    font-size: 0.9em;
+}
+
+.file-name {
+    color: #333;
+    font-weight: 500;
+    margin-right: 10px;
+}
+
+.file-size {
+    color: #666;
+    font-size: 0.8em;
+}
+
+.auto-generation-info {
+    padding: 0 20px 20px 20px;
+    background: #f8f9fa;
+    margin: 0 20px 20px 20px;
+    border-radius: 8px;
+    border-left: 4px solid #28a745;
+}
+
+.auto-generation-info h4 {
+    color: #28a745;
+    margin-bottom: 10px;
+}
+
+.auto-generation-info p {
+    margin: 0 0 15px 0;
+    color: #666;
+}
+
+.preview-info {
+    background: white;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.preview-info div {
+    margin: 5px 0;
+    font-size: 0.9em;
+}
+
+.preview-info span {
+    font-weight: 600;
+    color: #007bff;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.section-header h2 {
+    margin: 0;
+}
+
+</style>
+
+<script>
+let currentRomData = null;
+let uploadedFiles = {
+    rom: null,
+    mgba: null,
+    script: null
+};
+
+// File upload handling
+document.addEventListener('DOMContentLoaded', function() {
+    setupFileUploads();
+});
+
+function setupFileUploads() {
+    const romFile = document.getElementById('romFile');
+    const mgbaFile = document.getElementById('mgbaFile');
+    const scriptFile = document.getElementById('scriptFile');
+    
+    if (romFile) {
+        romFile.addEventListener('change', (e) => handleFileSelection(e, 'rom', 'romFileName', 'romFileSize'));
+    }
+    if (mgbaFile) {
+        mgbaFile.addEventListener('change', (e) => handleFileSelection(e, 'mgba', 'mgbaFileName', 'mgbaFileSize'));
+    }
+    if (scriptFile) {
+        scriptFile.addEventListener('change', (e) => handleFileSelection(e, 'script', 'scriptFileName', 'scriptFileSize'));
+    }
+}
+
+function handleFileSelection(event, fileType, nameElementId, sizeElementId) {
+    const file = event.target.files[0];
+    const nameElement = document.getElementById(nameElementId);
+    const sizeElement = document.getElementById(sizeElementId);
+    
+    if (file) {
+        uploadedFiles[fileType] = file;
+        nameElement.textContent = file.name;
+        sizeElement.textContent = formatFileSize(file.size);
+        
+        // Show preview for ROM file
+        if (fileType === 'rom') {
+            showROMPreview(file.name);
+        }
+        
+        // Enable create button if ROM is selected
+        updateCreateButton();
+    } else {
+        uploadedFiles[fileType] = null;
+        nameElement.textContent = getDefaultText(fileType);
+        sizeElement.textContent = '';
+        
+        if (fileType === 'rom') {
+            hideROMPreview();
+        }
+        
+        updateCreateButton();
+    }
+}
+
+function getDefaultText(fileType) {
+    switch(fileType) {
+        case 'rom': return 'No file selected';
+        case 'mgba': return 'No file selected - will auto-detect';
+        case 'script': return 'No file selected - will use default';
+        default: return 'No file selected';
+    }
+}
+
+function showROMPreview(filename) {
+    const previewInfo = document.getElementById('previewInfo');
+    const previewName = document.getElementById('previewName');
+    const previewGameType = document.getElementById('previewGameType');
+    
+    const displayName = cleanFilename(filename);
+    const gameType = detectGameType(filename);
+    
+    previewName.textContent = displayName;
+    previewGameType.textContent = gameType;
+    previewInfo.style.display = 'block';
+}
+
+function hideROMPreview() {
+    const previewInfo = document.getElementById('previewInfo');
+    previewInfo.style.display = 'none';
+}
+
+function cleanFilename(filename) {
+    // Remove extension
+    let name = filename.replace(/\.(gba|gbc|gb|rom)$/i, '');
+    // Replace underscores and dashes with spaces
+    name = name.replace(/[_-]+/g, ' ');
+    // Clean up extra spaces
+    name = name.replace(/\s+/g, ' ').trim();
+    // Title case for better readability
+    return name.split(' ').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    ).join(' ');
+}
+
+function detectGameType(filename) {
+    const filenameLower = filename.toLowerCase();
+    
+    // Pokemon games
+    const pokemonPatterns = {
+        'pokemon_red': [/pokemon.*red/, /red.*pokemon/, /pkmn.*red/],
+        'pokemon_blue': [/pokemon.*blue/, /blue.*pokemon/, /pkmn.*blue/],
+        'pokemon_yellow': [/pokemon.*yellow/, /yellow.*pokemon/, /pkmn.*yellow/],
+        'pokemon_ruby': [/pokemon.*ruby/, /ruby.*pokemon/, /pkmn.*ruby/],
+        'pokemon_sapphire': [/pokemon.*sapphire/, /sapphire.*pokemon/, /pkmn.*sapphire/],
+        'pokemon_emerald': [/pokemon.*emerald/, /emerald.*pokemon/, /pkmn.*emerald/],
+        'pokemon_firered': [/pokemon.*(fire.*red|firered)/, /firered/, /pkmn.*firered/],
+        'pokemon_leafgreen': [/pokemon.*(leaf.*green|leafgreen)/, /leafgreen/, /pkmn.*leafgreen/],
+    };
+    
+    // Other popular GBA games
+    const otherPatterns = {
+        'golden_sun': [/golden.*sun/],
+        'fire_emblem': [/fire.*emblem/],
+        'advance_wars': [/advance.*wars/],
+        'mario_kart': [/mario.*kart/],
+        'super_mario': [/super.*mario/],
+        'metroid': [/metroid/],
+        'zelda': [/zelda/, /link.*past/],
+        'final_fantasy': [/final.*fantasy/, /ff[0-9]/],
+    };
+    
+    // Check all patterns
+    const allPatterns = {...pokemonPatterns, ...otherPatterns};
+    for (const [gameType, patterns] of Object.entries(allPatterns)) {
+        if (patterns.some(pattern => pattern.test(filenameLower))) {
+            return gameType.replace('_', ' ').split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+        }
+    }
+    
+    return 'Unknown GBA Game';
+}
+
+function updateCreateButton() {
+    const createBtn = document.getElementById('createRomBtn');
+    const hasROM = uploadedFiles.rom !== null;
+    
+    createBtn.disabled = !hasROM;
+    if (hasROM) {
+        createBtn.textContent = 'Create ROM Configuration';
+        createBtn.classList.remove('disabled');
+    } else {
+        createBtn.textContent = 'ROM File Required';
+        createBtn.classList.add('disabled');
+    }
+}
+
+async function createRomConfiguration() {
+    if (!uploadedFiles.rom) {
+        showNotification('ROM file is required', 'error');
+        return;
+    }
+    
+    try {
+        const createBtn = document.getElementById('createRomBtn');
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+        
+        // Step 1: Upload ROM file
+        showNotification('Uploading ROM file...', 'info');
+        const romFileId = await uploadFile(uploadedFiles.rom, 'rom');
+        
+        // Step 2: Upload mGBA file if selected
+        let mgbaFileId = null;
+        if (uploadedFiles.mgba) {
+            showNotification('Uploading mGBA executable...', 'info');
+            mgbaFileId = await uploadFile(uploadedFiles.mgba, 'executable');
+        }
+        
+        // Step 3: Upload script file if selected
+        let scriptFileId = null;
+        if (uploadedFiles.script) {
+            showNotification('Uploading script file...', 'info');
+            scriptFileId = await uploadFile(uploadedFiles.script, 'script');
+        }
+        
+        // Step 4: Create ROM configuration
+        showNotification('Creating ROM configuration...', 'info');
+        const configData = {
+            rom_file_id: romFileId,
+            mgba_file_id: mgbaFileId,
+            script_file_id: scriptFileId
+        };
+        
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const response = await fetch('/api/create-rom-config/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(configData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('ROM configuration created successfully!', 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            showNotification('Error creating ROM configuration: ' + result.message, 'error');
+            createBtn.disabled = false;
+            createBtn.textContent = 'Create ROM Configuration';
+        }
+        
+    } catch (error) {
+        showNotification('Error creating ROM configuration: ' + error.message, 'error');
+        const createBtn = document.getElementById('createRomBtn');
+        createBtn.disabled = false;
+        createBtn.textContent = 'Create ROM Configuration';
+    }
+}
+
+async function uploadFile(file, fileType) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('file_type', fileType);
+    
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    const response = await fetch('/api/upload-file/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken
+        },
+        body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (!result.success) {
+        throw new Error(result.message);
+    }
+    
+    return result.file_id;
+}
+
+function openFilePicker(inputFieldId, pickerType = 'file', fileTypes = [], title = 'Select File') {
+    // Create a hidden file input element
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.style.display = 'none';
+    
+    // Configure file input based on picker type and file types
+    if (pickerType === 'directory') {
+        fileInput.webkitdirectory = true;
+        fileInput.directory = true;
+        fileInput.multiple = false;
+    } else {
+        // Set file type filters
+        const acceptValues = [];
+        
+        if (fileTypes.includes('roms')) {
+            acceptValues.push('.gba', '.gbc', '.gb', '.rom');
+        }
+        if (fileTypes.includes('executables')) {
+            // Browsers don't filter executables well, so accept all
+            acceptValues.push('*');
+        }
+        if (fileTypes.includes('scripts')) {
+            acceptValues.push('.lua', '.py', '.sh', '.bat', '.cmd');
+        }
+        if (fileTypes.includes('config')) {
+            acceptValues.push('.json', '.cfg', '.conf', '.ini');
+        }
+        if (fileTypes.includes('text')) {
+            acceptValues.push('.txt', '.md', '.log');
+        }
+        
+        if (acceptValues.length > 0 && !acceptValues.includes('*')) {
+            fileInput.accept = acceptValues.join(',');
+        }
+    }
+    
+    // Handle file selection
+    fileInput.addEventListener('change', function(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            const file = files[0];
+            
+            if (pickerType === 'directory') {
+                // For directory selection, get the directory path from webkitRelativePath
+                const relativePath = file.webkitRelativePath;
+                if (relativePath) {
+                    // Extract directory path from the first file in the directory
+                    const dirPath = relativePath.split('/')[0];
+                    document.getElementById(inputFieldId).value = './' + dirPath;
+                    showNotification('Directory selected: ' + dirPath, 'success');
+                } else {
+                    document.getElementById(inputFieldId).value = file.name;
+                    showNotification('Directory selected: ' + file.name, 'success');
+                }
+            } else {
+                // For files, we need to get a better path
+                handleFilePathSelection(file, inputFieldId, fileTypes);
+            }
+        }
+        
+        // Clean up
+        document.body.removeChild(fileInput);
+    });
+    
+    // Handle cancellation
+    fileInput.addEventListener('cancel', function() {
+        document.body.removeChild(fileInput);
+    });
+    
+    // Add to DOM and trigger click
+    document.body.appendChild(fileInput);
+    fileInput.click();
+}
+
+// Handle file path selection with user assistance
+function handleFilePathSelection(file, inputFieldId, fileTypes) {
+    // Store the file for later use if needed
+    const inputElement = document.getElementById(inputFieldId);
+    inputElement._selectedFile = file;
+    
+    // Try different approaches to get a meaningful path
+    let suggestedPath = '';
+    
+    // Approach 1: Use the current value as directory base
+    const currentValue = inputElement.value.trim();
+    if (currentValue && currentValue.includes('/') && !currentValue.endsWith(file.name)) {
+        const directory = currentValue.substring(0, currentValue.lastIndexOf('/'));
+        suggestedPath = directory + '/' + file.name;
+    } 
+    // Approach 2: Use common paths based on file type
+    else {
+        suggestedPath = getSuggestedPath(file.name, fileTypes);
+    }
+    
+    // Show path confirmation modal
+    showPathConfirmationModal(file, inputFieldId, suggestedPath);
+}
+
+// Get suggested path based on file type
+function getSuggestedPath(fileName, fileTypes) {
+    const homeDir = '/Users/' + (window.navigator.platform.includes('Mac') ? 
+                     'user' : 'user');
+    
+    if (fileTypes.includes('roms')) {
+        return homeDir + '/Documents/ROMs/' + fileName;
+    } else if (fileTypes.includes('executables')) {
+        if (window.navigator.platform.includes('Mac')) {
+            return '/Applications/' + fileName;
+        } else if (window.navigator.platform.includes('Win')) {
+            return 'C:\\Program Files\\' + fileName;
+        } else {
+            return '/usr/bin/' + fileName;
+        }
+    } else if (fileTypes.includes('scripts')) {
+        return homeDir + '/Documents/Scripts/' + fileName;
+    } else if (fileTypes.includes('config')) {
+        return homeDir + '/.config/' + fileName;
+    } else if (fileTypes.includes('text')) {
+        return homeDir + '/Documents/' + fileName;
+    } else {
+        return homeDir + '/Documents/' + fileName;
+    }
+}
+
+// Smart path confirmation for Chrome File System Access API
+function showPathConfirmation(filename, inputFieldId, fileTypes = []) {
+    const suggestedPath = getSuggestedPath(filename, fileTypes);
+    
+    const modal = document.createElement('div');
+    modal.className = 'path-modal';
+    modal.innerHTML = `
+        <div class="path-modal-content">
+            <div class="path-modal-header">
+                <h3>📁 Confirm File Path</h3>
+            </div>
+            <div class="path-modal-body">
+                <p><strong>Selected file:</strong> ${filename}</p>
+                <p>Please confirm or edit the full path where this file is located:</p>
+                <input type="text" id="pathInput" value="${suggestedPath}" class="path-input">
+                <small>Edit this path to match the actual file location on your system.</small>
+                
+                <div class="common-paths">
+                    <label>Quick paths:</label>
+                    <div class="path-buttons">
+                        <button type="button" onclick="setQuickPath('${filename}', '~/Documents/')" class="quick-path-btn">Documents</button>
+                        <button type="button" onclick="setQuickPath('${filename}', '~/Desktop/')" class="quick-path-btn">Desktop</button>
+                        <button type="button" onclick="setQuickPath('${filename}', '~/Downloads/')" class="quick-path-btn">Downloads</button>
+                    </div>
+                </div>
+                
+                <div class="file-type-hint">
+                    ${getFileTypeHint(fileTypes)}
+                </div>
+            </div>
+            <div class="path-modal-actions">
+                <button type="button" onclick="cancelPathSelection()" class="action-btn">Cancel</button>
+                <button type="button" onclick="confirmPathSelection('${inputFieldId}')" class="action-btn success">Confirm Path</button>
+            </div>
+        </div>
+    `;
+    
+    // Add modal styles
+    addPathModalStyles();
+    
+    document.body.appendChild(modal);
+    document.getElementById('pathInput').focus();
+}
+
+// Add path modal styles (shared between Chrome and manual entry)
+function addPathModalStyles() {
+    if (!document.querySelector('#pathModalStyles')) {
+        const style = document.createElement('style');
+        style.id = 'pathModalStyles';
+        style.textContent = `
+            .path-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            }
+            .path-modal-content {
+                background: white;
+                border-radius: 8px;
+                width: 90%;
+                max-width: 500px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            }
+            .path-modal-header {
+                padding: 20px;
+                border-bottom: 1px solid #e0e0e0;
+            }
+            .path-modal-header h3 {
+                margin: 0;
+                color: #333;
+            }
+            .path-modal-body {
+                padding: 20px;
+            }
+            .path-input {
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 13px;
+                margin: 10px 0;
+                box-sizing: border-box;
+            }
+            .common-paths {
+                margin-top: 15px;
+            }
+            .path-buttons {
+                display: flex;
+                gap: 10px;
+                margin-top: 5px;
+            }
+            .quick-path-btn {
+                padding: 5px 10px;
+                background: #f8f9fa;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 12px;
+            }
+            .quick-path-btn:hover {
+                background: #e9ecef;
+            }
+            .path-modal-actions {
+                padding: 20px;
+                border-top: 1px solid #e0e0e0;
+                text-align: right;
+            }
+            .path-modal-actions .action-btn {
+                margin-left: 10px;
+            }
+            .file-type-hint {
+                margin-top: 10px;
+                padding: 10px;
+                background: #f8f9fa;
+                border-radius: 4px;
+                border-left: 4px solid #007bff;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+// Quick path selection
+function setQuickPath(fileName, basePath) {
+    document.getElementById('pathInput').value = basePath + fileName;
+}
+
+// Cancel path selection
+function cancelPathSelection() {
+    const modal = document.querySelector('.path-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Confirm path selection
+function confirmPathSelection(inputFieldId) {
+    const pathInput = document.getElementById('pathInput');
+    const finalPath = pathInput.value.trim();
+    
+    if (finalPath) {
+        document.getElementById(inputFieldId).value = finalPath;
+        showNotification('File path set: ' + finalPath, 'success');
+    }
+    
+    cancelPathSelection();
+}
+
+// Format file size helper
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Modern file picker using Chrome File System Access API with fallback
+async function openNativeFilePicker(inputFieldId, pickerType = 'file', fileTypes = [], title = 'Select File') {
+    console.log('Modern file picker called:', { inputFieldId, pickerType, fileTypes, title });
+    
+    // Check if we're in Chrome/Edge with File System Access API support
+    if ('showOpenFilePicker' in window) {
+        try {
+            console.log('Using Chrome File System Access API');
+            showNotification('Opening native file picker...', 'info');
+            
+            // Configure file picker options
+            const pickerOptions = {
+                multiple: false
+            };
+            
+            // Only add types if we have specific ones
+            const fileTypeConfig = getFileTypes(fileTypes);
+            if (fileTypeConfig) {
+                pickerOptions.types = fileTypeConfig;
+            }
+            
+            // Show the native file picker
+            const [fileHandle] = await window.showOpenFilePicker(pickerOptions);
+            
+            // For Chrome users, directly populate with a generic path suggestion (same as ROM files)
+            const filename = fileHandle.name;
+            const suggestedPath = getGenericPath(filename);
+            
+            document.getElementById(inputFieldId).value = suggestedPath;
+            showNotification(`File selected: ${filename}`, 'success');
+            
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('File selection cancelled');
+                showNotification('File selection cancelled', 'info');
+            } else {
+                console.error('Chrome file picker error:', error);
+                showNotification('File picker error. Using manual entry...', 'info');
+                showManualPathEntry(inputFieldId, fileTypes, title);
+            }
+        }
+    } else {
+        // Fallback for non-Chrome browsers
+        console.log('File System Access API not supported, using manual entry');
+        showNotification('For best experience, use Chrome. Showing manual entry...', 'info');
+        showManualPathEntry(inputFieldId, fileTypes, title);
+    }
+}
+
+// Convert our file types to Chrome File System Access API format
+function getFileTypes(fileTypes) {
+    const typeMap = {
+        'roms': {
+            description: 'ROM Files',
+            accept: { 'application/octet-stream': ['.gba', '.gbc', '.gb', '.rom'] }
+        },
+        'executables': {
+            description: 'Executable Files',
+            accept: { 'application/octet-stream': ['.exe', '.app', '.bin'] }
+        },
+        'scripts': {
+            description: 'Script Files',
+            accept: { 'text/plain': ['.lua', '.py', '.sh', '.bat'] }
+        },
+        'config': {
+            description: 'Configuration Files',
+            accept: { 'application/json': ['.json', '.cfg', '.conf', '.ini'] }
+        },
+        'text': {
+            description: 'Text Files',
+            accept: { 'text/plain': ['.txt', '.md', '.log'] }
+        }
+    };
+    
+    const types = [];
+    fileTypes.forEach(fileType => {
+        if (typeMap[fileType]) {
+            types.push(typeMap[fileType]);
+        }
+    });
+    
+    // If no specific types were found, don't add restrictions
+    if (types.length === 0) {
+        // No file type restrictions
+        return undefined;
+    }
+    
+    return types;
+}
+
+// Generic path suggestion (same approach for all file types)
+function getGenericPath(filename) {
+    const homeDir = '/Users/' + (window.navigator.platform.includes('Mac') ? 
+                     'user' : 'user');
+    return homeDir + '/Documents/' + filename;
+}
+
+// Quick path confirmation for Chrome users (streamlined)
+function showQuickPathConfirmation(filename, inputFieldId, fileTypes = []) {
+    const suggestedPath = getSuggestedPath(filename, fileTypes);
+    
+    // Show a compact inline prompt
+    const notification = document.createElement('div');
+    notification.className = 'quick-path-prompt';
+    notification.innerHTML = `
+        <div class="quick-path-content">
+            <p><strong>File selected:</strong> ${filename}</p>
+            <p>Enter the full path:</p>
+            <div class="quick-path-input-group">
+                <input type="text" id="quickPathInput" value="${suggestedPath}" class="quick-path-input">
+                <button onclick="confirmQuickPath('${inputFieldId}')" class="action-btn success">✓</button>
+                <button onclick="cancelQuickPath()" class="action-btn">✕</button>
+            </div>
+        </div>
+    `;
+    
+    // Add styles for the quick prompt
+    if (!document.querySelector('#quickPathStyles')) {
+        const style = document.createElement('style');
+        style.id = 'quickPathStyles';
+        style.textContent = `
+            .quick-path-prompt {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: white;
+                border: 2px solid #007bff;
+                border-radius: 8px;
+                padding: 15px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                z-index: 1000;
+                max-width: 400px;
+                font-size: 14px;
+            }
+            .quick-path-content p {
+                margin: 5px 0;
+            }
+            .quick-path-input-group {
+                display: flex;
+                gap: 8px;
+                margin-top: 10px;
+            }
+            .quick-path-input {
+                flex: 1;
+                padding: 6px 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 12px;
+            }
+            .quick-path-prompt .action-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    document.getElementById('quickPathInput').focus();
+    document.getElementById('quickPathInput').select();
+}
+
+// Confirm quick path
+function confirmQuickPath(inputFieldId) {
+    const pathInput = document.getElementById('quickPathInput');
+    const finalPath = pathInput.value.trim();
+    
+    if (finalPath) {
+        document.getElementById(inputFieldId).value = finalPath;
+        showNotification(`Path set: ${finalPath}`, 'success');
+    }
+    
+    cancelQuickPath();
+}
+
+// Cancel quick path
+function cancelQuickPath() {
+    const prompt = document.querySelector('.quick-path-prompt');
+    if (prompt) {
+        prompt.remove();
+    }
+}
+
+// Manual path entry for non-Chrome browsers
+function showManualPathEntry(inputFieldId, fileTypes = [], title = 'Enter File Path') {
+    const modal = document.createElement('div');
+    modal.className = 'path-modal';
+    modal.innerHTML = `
+        <div class="path-modal-content">
+            <div class="path-modal-header">
+                <h3>📁 ${title}</h3>
+            </div>
+            <div class="path-modal-body">
+                <p>Please enter the full path to your file:</p>
+                <input type="text" id="manualPathInput" class="path-input" placeholder="/full/path/to/your/file.gba">
+                <small>Enter the complete file path including filename and extension.</small>
+                
+                <div class="common-paths">
+                    <label>Common locations:</label>
+                    <div class="path-buttons">
+                        <button type="button" onclick="setQuickManualPath('~/Documents/')" class="quick-path-btn">Documents</button>
+                        <button type="button" onclick="setQuickManualPath('~/Desktop/')" class="quick-path-btn">Desktop</button>
+                        <button type="button" onclick="setQuickManualPath('~/Downloads/')" class="quick-path-btn">Downloads</button>
+                    </div>
+                </div>
+                
+                <div class="file-type-hint">
+                    ${getFileTypeHint(fileTypes)}
+                </div>
+            </div>
+            <div class="path-modal-actions">
+                <button type="button" onclick="cancelManualPathEntry()" class="action-btn">Cancel</button>
+                <button type="button" onclick="confirmManualPath('${inputFieldId}')" class="action-btn success">Confirm</button>
+            </div>
+        </div>
+    `;
+    
+    // Add modal styles if not already present
+    addPathModalStyles();
+    
+    document.body.appendChild(modal);
+    document.getElementById('manualPathInput').focus();
+}
+
+// Set quick path for manual entry
+function setQuickManualPath(basePath) {
+    document.getElementById('manualPathInput').value = basePath;
+}
+
+// Cancel manual path entry
+function cancelManualPathEntry() {
+    const modal = document.querySelector('.path-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Confirm manual path entry
+function confirmManualPath(inputFieldId) {
+    const pathInput = document.getElementById('manualPathInput');
+    const finalPath = pathInput.value.trim();
+    
+    if (finalPath) {
+        document.getElementById(inputFieldId).value = finalPath;
+        showNotification('Path entered: ' + finalPath, 'success');
+    }
+    
+    cancelManualPathEntry();
+}
+
+// Get file type hint for manual entry
+function getFileTypeHint(fileTypes) {
+    if (!fileTypes || fileTypes.length === 0) return '';
+    
+    const hints = {
+        'roms': 'Expected extensions: .gba, .gbc, .gb, .rom',
+        'executables': 'Expected extensions: .exe (Windows), .app (macOS), .bin',
+        'scripts': 'Expected extensions: .lua, .py, .sh, .bat',
+        'config': 'Expected extensions: .json, .cfg, .conf, .ini',
+        'text': 'Expected extensions: .txt, .md, .log'
+    };
+    
+    const hint = hints[fileTypes[0]];
+    return hint ? `<small><strong>Hint:</strong> ${hint}</small>` : '';
+}
+
+// ROM Management Functions
+function showAddRomModal() {
+    document.getElementById('modalTitle').textContent = 'Add ROM Configuration';
+    
+    // Reset file inputs
+    const romFile = document.getElementById('romFile');
+    const mgbaFile = document.getElementById('mgbaFile');
+    const scriptFile = document.getElementById('scriptFile');
+    
+    if (romFile) romFile.value = '';
+    if (mgbaFile) mgbaFile.value = '';
+    if (scriptFile) scriptFile.value = '';
+    
+    // Reset file info displays
+    document.getElementById('romFileName').textContent = 'No file selected';
+    document.getElementById('romFileSize').textContent = '';
+    document.getElementById('mgbaFileName').textContent = 'No file selected - will auto-detect';
+    document.getElementById('mgbaFileSize').textContent = '';
+    document.getElementById('scriptFileName').textContent = 'No file selected - will use default';
+    document.getElementById('scriptFileSize').textContent = '';
+    
+    // Reset upload state
+    uploadedFiles = { rom: null, mgba: null, script: null };
+    hideROMPreview();
+    updateCreateButton();
+    
+    document.getElementById('romModal').style.display = 'block';
+}
+
+function editRom(romId) {
+    // Find ROM data from table
+    const row = document.querySelector(`tr:has(button[onclick*="${romId}"])`);
+    if (!row) return;
+    
+    const cells = row.querySelectorAll('td');
+    document.getElementById('modalTitle').textContent = 'Edit ROM Configuration';
+    document.getElementById('romId').value = romId;
+    document.getElementById('name').value = cells[0].textContent.trim();
+    document.getElementById('game_type').value = cells[1].textContent.trim();
+    document.getElementById('rom_path').value = cells[2].textContent.trim();
+    
+    const mgbaText = cells[3].textContent.trim();
+    if (mgbaText !== 'Auto-detect') {
+        document.getElementById('mgba_path').value = mgbaText;
+    }
+    
+    document.getElementById('is_default').checked = cells[4].textContent.includes('✅');
+    document.getElementById('romModal').style.display = 'block';
+}
+
+function closeRomModal() {
+    document.getElementById('romModal').style.display = 'none';
+}
+
+function deleteRom(romId, romName) {
+    if (confirm(`Are you sure you want to delete ROM configuration "${romName}"?`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/rom-config/delete/${romId}/`;
+        
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrfmiddlewaretoken';
+        csrfInput.value = csrfToken;
+        form.appendChild(csrfInput);
+        
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+async function launchMGBA(romId) {
+    try {
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        const response = await fetch('/api/launch-mgba/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ rom_id: romId })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            // Refresh page to update last_used timestamp
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showNotification(result.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to launch mGBA: ' + error.message, 'error');
+    }
+}
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `alert ${type}`;
+    notification.textContent = message;
+    notification.style.position = 'fixed';
+    notification.style.top = '20px';
+    notification.style.right = '20px';
+    notification.style.zIndex = '1001';
+    notification.style.maxWidth = '400px';
+    notification.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    
+    // Add styles for different notification types
+    if (type === 'info') {
+        notification.style.background = '#d1ecf1';
+        notification.style.color = '#0c5460';
+        notification.style.border = '1px solid #bee5eb';
+    }
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('romModal');
+    if (event.target === modal) {
+        closeRomModal();
+    }
+}
+</script>
+{% endblock %}

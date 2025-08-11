@@ -9,7 +9,8 @@ import json
 import logging
 import psutil
 import time
-from dashboard.models import Process, ChatMessage, SystemLog, ProcessStatus
+from dashboard.models import Process, ChatMessage, SystemLog
+from dashboard.models import ProcessStatus
 
 logger = logging.getLogger(__name__)
 

@@ -11,22 +11,41 @@ import json
 import os
 import sys
 import signal
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 from collections import deque
 import base64
 from io import BytesIO
 
-# Add project root to path
+# Add project root to path to access core modules and games
 project_root = os.path.join(os.path.dirname(__file__), '..', '..')
-sys.path.append(project_root)
+sys.path.insert(0, project_root)
 
-from core.base_capture_system import BaseCaptureSystem, VideoSegment, CaptureFrame
-from core.logging_config import configure_logging, get_logger
-from core.message_bus import message_bus, publish_gif_message, publish_response_message, publish_action_message, publish_screenshots_message
-from core.message_types import UnifiedMessage
-from games.pokemon_red.controller import PokemonRedController
+try:
+    from core.base_capture_system import BaseCaptureSystem, VideoSegment, CaptureFrame
+    from core.logging_config import configure_logging, get_logger
+    from core.message_bus import message_bus, publish_gif_message, publish_response_message, publish_action_message, publish_screenshots_message
+    from core.message_types import UnifiedMessage
+    from games.pokemon_red.controller import PokemonRedController
+except ImportError as e:
+    print(f"⚠️ Warning: Could not import project core modules: {e}")
+    print("Unified service may not function properly without core modules")
+    # Create stub functions to prevent crashes
+    def configure_logging(*args, **kwargs): pass
+    def get_logger(name): 
+        import logging
+        return logging.getLogger(name)
+    class BaseCaptureSystem: pass
+    class VideoSegment: pass  
+    class CaptureFrame: pass
+    class UnifiedMessage: pass
+    class PokemonRedController: pass
+    def message_bus(*args, **kwargs): pass
+    def publish_gif_message(*args, **kwargs): pass
+    def publish_response_message(*args, **kwargs): pass
+    def publish_action_message(*args, **kwargs): pass
+    def publish_screenshots_message(*args, **kwargs): pass
 import PIL.Image
 
 
@@ -578,11 +597,22 @@ def get_unified_service() -> UnifiedGameService:
     return _service_instance
 
 
-def start_unified_service(config_path: str = None) -> bool:
-    """Start the global unified service."""
+def start_unified_service(config: Union[str, Dict] = None) -> bool:
+    """Start the global unified service.
+    
+    Args:
+        config: Either a config file path (str) or config dictionary (Dict)
+    """
     service = get_unified_service()
-    if config_path:
-        service.config = service._load_config(config_path)
+    if config:
+        if isinstance(config, str):
+            # Config is a file path
+            service.config = service._load_config(config)
+        elif isinstance(config, dict):
+            # Config is a dictionary from database
+            service.config = config
+        else:
+            raise ValueError(f"Config must be a string (file path) or dict, got {type(config)}")
     return service.start()
 
 

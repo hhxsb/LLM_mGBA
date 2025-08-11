@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug File Picker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .debug-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .path-input-group {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+            margin: 10px 0;
+        }
+        .path-input-group input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .browse-btn {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+        .browse-btn:hover {
+            background: #138496;
+        }
+        #debugLog {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .alert {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1001;
+            max-width: 400px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 12px 20px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .alert.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .clear-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-container">
+        <h1>🔧 File Picker Debug Tool</h1>
+        <p>This tool helps debug the native file picker issue. Open browser console to see detailed logs.</p>
+        
+        <h3>Test ROM File Selection</h3>
+        <div class="path-input-group">
+            <input type="text" id="rom_path" placeholder="ROM file path will appear here">
+            <button onclick="testFilePicker('rom_path', 'roms')" class="browse-btn">📁 Browse ROMs</button>
+        </div>
+        
+        <h3>Test Script File Selection</h3>
+        <div class="path-input-group">
+            <input type="text" id="script_path" placeholder="Script file path will appear here">
+            <button onclick="testFilePicker('script_path', 'scripts')" class="browse-btn">📁 Browse Scripts</button>
+        </div>
+        
+        <h3>Debug Log</h3>
+        <button onclick="clearDebugLog()" class="clear-btn">Clear Log</button>
+        <div id="debugLog"></div>
+        
+        <h3>Instructions</h3>
+        <ol>
+            <li>Click a Browse button</li>
+            <li>Watch the debug log below</li>
+            <li>Check browser console for detailed logs</li>
+            <li>If native picker opens (Finder), select a file</li>
+            <li>See if the path gets set in the input field</li>
+        </ol>
+    </div>
+
+    <!-- Fake CSRF token for testing -->
+    <input type="hidden" name="csrfmiddlewaretoken" value="debug-token">
+
+    <script>
+        let debugLog = [];
+        
+        function log(message) {
+            const timestamp = new Date().toISOString();
+            const logMessage = `[${timestamp}] ${message}`;
+            debugLog.push(logMessage);
+            console.log(logMessage);
+            updateDebugDisplay();
+        }
+        
+        function updateDebugDisplay() {
+            document.getElementById('debugLog').textContent = debugLog.slice(-20).join('\n');
+        }
+        
+        function clearDebugLog() {
+            debugLog = [];
+            updateDebugDisplay();
+        }
+        
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `alert ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 5000);
+        }
+
+        async function testFilePicker(inputFieldId, fileType) {
+            log(`Testing file picker for ${inputFieldId} with type ${fileType}`);
+            
+            try {
+                log('Creating API request...');
+                
+                const response = await fetch('http://localhost:8000/api/open-file-picker/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': 'debug-token'
+                    },
+                    body: JSON.stringify({
+                        type: 'file',
+                        file_types: [fileType],
+                        initial_dir: '~',
+                        title: `Select ${fileType} file`
+                    })
+                });
+                
+                log(`API Response status: ${response.status} ${response.statusText}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                log(`API Result: ${JSON.stringify(result)}`);
+                
+                if (result.success && result.path) {
+                    log(`Setting path: ${result.path}`);
+                    document.getElementById(inputFieldId).value = result.path;
+                    showNotification('File selected: ' + result.path, 'success');
+                } else if (result.message === 'File selection cancelled') {
+                    log('File selection was cancelled by user');
+                    showNotification('File selection cancelled', 'info');
+                } else {
+                    log(`Native picker failed: ${result.message}`);
+                    showNotification('Native picker failed: ' + result.message, 'error');
+                }
+                
+            } catch (error) {
+                log(`Error: ${error.message}`);
+                showNotification('Error: ' + error.message, 'error');
+            }
+        }
+        
+        // Log initial load
+        log('Debug tool loaded. Ready to test file picker.');
+    </script>
+</body>
+</html>

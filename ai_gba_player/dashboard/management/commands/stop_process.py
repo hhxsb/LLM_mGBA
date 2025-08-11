@@ -11,20 +11,13 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
-# Import unified service
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.append(str(project_root))
-sys.path.append(str(project_root / 'ai_gba_player'))
-
+# Import unified service using relative path within Django project
 try:
     from core.unified_game_service import get_unified_service, stop_unified_service
-except ImportError:
-    try:
-        from ai_gba_player.core.unified_game_service import get_unified_service, stop_unified_service
-    except ImportError as e:
-        print(f"Failed to import unified service: {e}")
-        def get_unified_service(): raise ImportError("Unified service not available")
-        def stop_unified_service(): raise ImportError("Unified service not available")
+except ImportError as e:
+    print(f"⚠️ Warning: Could not import unified service: {e}")
+    def get_unified_service(): raise ImportError("Unified service not available")
+    def stop_unified_service(): raise ImportError("Unified service not available")
 
 logger = logging.getLogger(__name__)
 

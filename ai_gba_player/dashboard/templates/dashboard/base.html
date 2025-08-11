@@ -26,11 +26,11 @@
                 <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
                     🎯 Game Monitor
                 </a>
-                <a href="{% url 'admin_panel' %}" class="nav-link {% if page == 'admin' %}active{% endif %}">
-                    ⚙️ System Control
+                <a href="{% url 'config' %}" class="nav-link {% if page == 'config' %}active{% endif %}">
+                    🔧 System Config
                 </a>
-                <a href="/admin/" class="nav-link" target="_blank">
-                    🔧 Django Admin
+                <a href="{% url 'admin_panel' %}" class="nav-link {% if page == 'admin' %}active{% endif %}">
+                    ⚙️ Admin
                 </a>
             </div>
             

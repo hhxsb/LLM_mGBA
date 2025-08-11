@@ -1,26 +1,104 @@
 {% extends 'dashboard/base.html' %}
 
 {% block content %}
+{% csrf_token %}
 <div class="dashboard-container">
+    <!-- Quick Actions Panel -->
+    <div class="quick-actions-panel">
+        <h2>🚀 Quick Actions</h2>
+        <div class="actions-grid">
+            <div class="action-card">
+                <h3>🎮 Launch Game</h3>
+                {% if config.rom_path %}
+                    <p>ROM: <strong>{{ config.rom_display_name|default:"Auto-Generated" }}</strong></p>
+                    <button onclick="launchGameFromConfig()" class="action-btn primary">
+                        🚀 Launch mGBA
+                    </button>
+                {% else %}
+                    <p>No ROM configured</p>
+                    <a href="{% url 'config' %}" class="action-btn">Configure ROM</a>
+                {% endif %}
+            </div>
+            
+            <div class="action-card">
+                <h3>⚙️ Game Service</h3>
+                {% if unified_service %}
+                    <p>Status: <span class="status {{ unified_service.status }}">{{ unified_service.get_status_display }}</span></p>
+                    <button onclick="restartService()" class="action-btn success">
+                        🔄 Restart Service
+                    </button>
+                {% else %}
+                    <p>Service not initialized</p>
+                    <button onclick="restartService()" class="action-btn">
+                        🔄 Start Service
+                    </button>
+                {% endif %}
+            </div>
+            
+            <div class="action-card">
+                <h3>📂 ROM Configuration</h3>
+                {% if config.rom_path %}
+                    <p>ROM: <strong>{{ config.rom_path|truncatechars:30 }}</strong></p>
+                {% else %}
+                    <p>No ROM configured</p>
+                {% endif %}
+                <a href="{% url 'config' %}" class="action-btn">
+                    ⚙️ Configure ROM
+                </a>
+            </div>
+            
+            <div class="action-card">
+                <h3>🔧 System Control</h3>
+                <p>Advanced process management</p>
+                <a href="{% url 'admin_panel' %}" class="action-btn">
+                    🛠️ Admin Panel
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- System Status Panel -->
     <div class="status-panel">
         <h2>🖥️ System Status</h2>
         <div class="status-grid" id="statusGrid">
             <div class="status-card">
-                <h3>🎮 Game Control</h3>
-                <div class="status-indicator" id="gameControlStatus">⏸️ Stopped</div>
+                <h3>🎮 Unified Service</h3>
+                <div class="status-indicator" id="unifiedServiceStatus">
+                    {% if unified_service %}
+                        <span class="status {{ unified_service.status }}">
+                            {% if unified_service.status == 'running' %}✅ Running
+                            {% elif unified_service.status == 'starting' %}⏳ Starting
+                            {% elif unified_service.status == 'error' %}❌ Error
+                            {% else %}⏸️ Stopped{% endif %}
+                        </span>
+                    {% else %}
+                        ⏸️ Not initialized
+                    {% endif %}
+                </div>
             </div>
             <div class="status-card">
                 <h3>📹 Video Capture</h3>
-                <div class="status-indicator" id="videoCaptureStatus">⏸️ Stopped</div>
+                <div class="status-indicator" id="videoCaptureStatus">
+                    {% if unified_service and unified_service.status == 'running' %}
+                        ✅ Active
+                    {% else %}
+                        ⏸️ Inactive
+                    {% endif %}
+                </div>
             </div>
             <div class="status-card">
                 <h3>🧠 Knowledge System</h3>
-                <div class="status-indicator" id="knowledgeSystemStatus">⏸️ Stopped</div>
+                <div class="status-indicator" id="knowledgeSystemStatus">
+                    {% if unified_service and unified_service.status == 'running' %}
+                        ✅ Active
+                    {% else %}
+                        ⏸️ Inactive
+                    {% endif %}
+                </div>
             </div>
             <div class="status-card">
-                <h3>📊 Memory Usage</h3>
-                <div class="status-indicator" id="memoryUsage">0%</div>
+                <h3>📊 Connection</h3>
+                <div class="status-indicator" id="connectionStatus">🔄 Connecting...</div>
             </div>
         </div>
     </div>
@@ -171,5 +249,199 @@ function exportMessages() {
         window.dashboardWS.exportMessages();
     }
 }
+
+async function launchGameFromConfig() {
+    try {
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        const response = await fetch('/api/launch-mgba-config/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+        } else {
+            showNotification(result.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Failed to launch mGBA: ' + error.message, 'error');
+    }
+}
+
+async function restartService() {
+    try {
+        // Update UI to show restarting
+        const serviceStatus = document.getElementById('unifiedServiceStatus');
+        serviceStatus.innerHTML = '<span class="status starting">⏳ Restarting...</span>';
+        
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        const response = await fetch('/api/restart-service/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            // Refresh page after a delay to show updated status
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            showNotification(result.message, 'error');
+            // Reset status on error
+            serviceStatus.innerHTML = '<span class="status error">❌ Error</span>';
+        }
+    } catch (error) {
+        showNotification('Failed to restart service: ' + error.message, 'error');
+        const serviceStatus = document.getElementById('unifiedServiceStatus');
+        serviceStatus.innerHTML = '<span class="status error">❌ Error</span>';
+    }
+}
+
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1001;
+        padding: 12px 20px;
+        border-radius: 4px;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-weight: 500;
+    `;
+    
+    // Set colors based on type
+    if (type === 'success') {
+        notification.style.backgroundColor = '#d4edda';
+        notification.style.color = '#155724';
+        notification.style.border = '1px solid #c3e6cb';
+    } else if (type === 'error') {
+        notification.style.backgroundColor = '#f8d7da';
+        notification.style.color = '#721c24';
+        notification.style.border = '1px solid #f5c6cb';
+    } else if (type === 'warning') {
+        notification.style.backgroundColor = '#fff3cd';
+        notification.style.color = '#856404';
+        notification.style.border = '1px solid #ffeaa7';
+    }
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
 </script>
+
+<style>
+.quick-actions-panel {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.quick-actions-panel h2 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 1.5em;
+}
+
+.actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.action-card {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+}
+
+.action-card h3 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 1.1em;
+}
+
+.action-card p {
+    margin: 0 0 15px 0;
+    color: #666;
+    font-size: 0.9em;
+}
+
+.action-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background: #007bff;
+    color: white;
+    text-decoration: none;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.action-btn:hover {
+    background: #0056b3;
+    text-decoration: none;
+    color: white;
+}
+
+.action-btn.primary {
+    background: #28a745;
+}
+
+.action-btn.primary:hover {
+    background: #1e7e34;
+}
+
+.action-btn.success {
+    background: #17a2b8;
+}
+
+.action-btn.success:hover {
+    background: #138496;
+}
+
+.status {
+    font-weight: 500;
+}
+
+.status.running {
+    color: #28a745;
+}
+
+.status.starting {
+    color: #ffc107;
+}
+
+.status.stopped {
+    color: #6c757d;
+}
+
+.status.error {
+    color: #dc3545;
+}
+</style>
 {% endblock %}
