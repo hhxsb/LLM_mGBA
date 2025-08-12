@@ -457,7 +457,7 @@ class UnifiedGameService:
             self.game_thread.start()
             
             self.running = True
-            self.logger.success("✅ Unified Game Service started successfully")
+            self.logger.info("✅ Unified Game Service started successfully")
             
             return True
             

@@ -477,12 +477,19 @@ def restart_service(request):
         subprocess.run(['pkill', '-f', 'unified_game_service.py'], check=False)
         time.sleep(2)
         
-        # Start service
-        project_root = Path(__file__).parent.parent.parent.parent
+        # Start service  
+        # Current file is in ai_gba_player/ai_gba_player/simple_views.py
+        # Project root is two levels up from here
+        current_dir = Path(__file__).parent  # ai_gba_player/ai_gba_player/
+        project_root = current_dir.parent.parent  # Go up to LLM-Pokemon-Red/
         service_script = project_root / "ai_gba_player" / "core" / "unified_game_service.py"
         config_file = project_root / "config_emulator.json"
         
-        if service_script.exists() and config_file.exists():
+        # Debug: check what paths we're looking for
+        service_exists = service_script.exists()
+        config_exists = config_file.exists()
+        
+        if service_exists and config_exists:
             process = subprocess.Popen([
                 'python', str(service_script), 
                 '--config', str(config_file),
@@ -501,14 +508,21 @@ def restart_service(request):
                     'message': '✅ Unified service started successfully!'
                 })
             else:
+                stdout, stderr = process.communicate()
                 return JsonResponse({
                     'success': False,
-                    'message': '❌ Service failed to start'
+                    'message': f'❌ Service failed to start: {stderr[:200]}'
                 })
         else:
+            missing_files = []
+            if not service_exists:
+                missing_files.append(f'Service script: {service_script}')
+            if not config_exists:
+                missing_files.append(f'Config file: {config_file}')
+            
             return JsonResponse({
                 'success': False,
-                'message': '❌ Service script or config not found'
+                'message': f'❌ Missing files: {"; ".join(missing_files)}'
             })
             
     except Exception as e:
@@ -525,24 +539,54 @@ def launch_mgba_config(request):
         mgba_path = config.get('mgba_path', '')
         rom_path = config.get('rom_path', '')
         
+        # Function to resolve executable path for macOS app bundles
+        def resolve_executable_path(path):
+            if path.endswith('.app'):
+                # It's a macOS app bundle, find the executable inside
+                executable_name = os.path.basename(path).replace('.app', '')
+                executable_path = os.path.join(path, 'Contents', 'MacOS', executable_name)
+                if os.path.exists(executable_path):
+                    return executable_path
+                # Try common executable names for mGBA
+                for name in ['mGBA', 'mgba-qt', 'mgba']:
+                    executable_path = os.path.join(path, 'Contents', 'MacOS', name)
+                    if os.path.exists(executable_path):
+                        return executable_path
+                return None
+            return path if os.path.exists(path) else None
+        
         # If no configured mGBA path, try to find it
-        if not mgba_path or not os.path.exists(mgba_path):
+        if not mgba_path:
             common_paths = [
-                '/Applications/mGBA.app/Contents/MacOS/mGBA',  # macOS
+                '/Applications/mGBA.app',  # macOS app bundle
+                '/Applications/mGBA.app/Contents/MacOS/mGBA',  # macOS executable
                 '/opt/homebrew/bin/mgba-qt',  # Homebrew
                 '/usr/local/bin/mgba-qt',  # Local install
                 '/usr/bin/mgba-qt',  # System install
             ]
             
             for path in common_paths:
-                if os.path.exists(path):
-                    mgba_path = path
+                resolved_path = resolve_executable_path(path)
+                if resolved_path and os.path.exists(resolved_path):
+                    mgba_path = resolved_path
                     break
+        else:
+            # Resolve the configured path
+            resolved_path = resolve_executable_path(mgba_path)
+            if resolved_path:
+                mgba_path = resolved_path
         
         if not mgba_path or not os.path.exists(mgba_path):
             return JsonResponse({
                 'success': False,
-                'message': 'mGBA not found. Please install mGBA or configure the path in ROM Configuration.'
+                'message': 'mGBA executable not found. Please install mGBA or configure the correct executable path.'
+            })
+        
+        # Check if the path is executable
+        if not os.access(mgba_path, os.X_OK):
+            return JsonResponse({
+                'success': False,
+                'message': f'mGBA executable found but not executable: {mgba_path}. Check file permissions.'
             })
         
         # Launch mGBA
@@ -630,10 +674,18 @@ def save_ai_config(request):
         
         # Save configuration
         if save_config_to_file(config):
-            return JsonResponse({
-                'success': True,
-                'message': f'AI configuration saved: {provider} provider with {cooldown}s cooldown'
-            })
+            # Also update the main config_emulator.json file
+            success = _update_main_config_file(provider, api_key, cooldown)
+            if success:
+                return JsonResponse({
+                    'success': True,
+                    'message': f'AI configuration saved: {provider} provider with {cooldown}s cooldown'
+                })
+            else:
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Configuration saved locally. Warning: Could not update main config file.'
+                })
         else:
             return JsonResponse({
                 'success': False,
@@ -645,6 +697,47 @@ def save_ai_config(request):
             'success': False,
             'message': f'Error saving AI config: {str(e)}'
         })
+
+def _update_main_config_file(provider, api_key, cooldown):
+    """Update the main config_emulator.json file with proper values"""
+    try:
+        import os
+        from pathlib import Path
+        
+        # Find the project root (where config_emulator.json should be)
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent  # Go up two levels from ai_gba_player/ai_gba_player/
+        config_path = project_root / 'config_emulator.json'
+        
+        if not config_path.exists():
+            return False
+        
+        # Read the current config
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+        
+        # Update the configuration
+        config_data['llm_provider'] = provider
+        config_data['decision_cooldown'] = cooldown
+        
+        # Update the appropriate provider's API key
+        if provider == 'gemini' or provider == 'google':
+            config_data['providers']['google']['api_key'] = api_key
+            config_data['llm_provider'] = 'google'  # Normalize to 'google'
+        elif provider == 'openai':
+            config_data['providers']['openai']['api_key'] = api_key
+        elif provider == 'anthropic':
+            config_data['providers']['anthropic']['api_key'] = api_key
+        
+        # Write back the updated config
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=2)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error updating main config: {e}")
+        return False
 
 def stop_service(request):
     """Stop the unified service"""
