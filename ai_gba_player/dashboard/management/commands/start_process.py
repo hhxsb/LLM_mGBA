@@ -15,14 +15,28 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
-# Import unified service using relative path within Django project
+# Import unified service using proper Django app path
 try:
-    from core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
+    # Add project root to Python path
+    import os
+    project_root = Path(__file__).parent.parent.parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    
+    from ai_gba_player.core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
+    print("✅ Unified Game Service integration ready")
 except ImportError as e:
     print(f"⚠️ Warning: Could not import unified service: {e}")
-    def get_unified_service(): raise ImportError("Unified service not available")
-    def start_unified_service(config_path): raise ImportError("Unified service not available") 
-    def stop_unified_service(): raise ImportError("Unified service not available")
+    try:
+        # Try alternative import path
+        from core.unified_game_service import get_unified_service, start_unified_service, stop_unified_service
+        print("✅ Unified Game Service integration ready (alternative path)")
+    except ImportError as e2:
+        print(f"⚠️ Warning: Could not import project core modules: {e2}")
+        print("Unified service may not function properly without core modules")
+        def get_unified_service(): raise ImportError("Unified service not available")
+        def start_unified_service(config_path): raise ImportError("Unified service not available") 
+        def stop_unified_service(): raise ImportError("Unified service not available")
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +71,8 @@ class Command(BaseCommand):
         
         # Use database configuration unless JSON file is explicitly provided
         if config_file:
-            config_path = project_root / config_file
-            if not config_path.exists():
+            config_path = str(project_root / config_file)
+            if not Path(config_path).exists():
                 raise CommandError(f'Config file not found: {config_path}')
             config_source = f'JSON file: {config_path}'
             use_db_config = False

@@ -471,60 +471,61 @@ def config_view(request):
     return HttpResponse(html_content)
 
 def restart_service(request):
-    """Restart the unified service"""
+    """Restart the unified service using direct subprocess call"""
     try:
-        # Kill any existing processes
-        subprocess.run(['pkill', '-f', 'unified_game_service.py'], check=False)
+        # Stop any existing unified service processes
+        subprocess.run(['pkill', '-f', 'unified_game_service'], check=False)
         time.sleep(2)
         
-        # Start service  
-        # Current file is in ai_gba_player/ai_gba_player/simple_views.py
-        # Project root is two levels up from here
+        # Get the project root directory
         current_dir = Path(__file__).parent  # ai_gba_player/ai_gba_player/
         project_root = current_dir.parent.parent  # Go up to LLM-Pokemon-Red/
-        service_script = project_root / "ai_gba_player" / "core" / "unified_game_service.py"
-        config_file = project_root / "config_emulator.json"
         
-        # Debug: check what paths we're looking for
-        service_exists = service_script.exists()
-        config_exists = config_file.exists()
+        # Start the service directly using Python with proper path
+        cmd = [
+            'python', '-c',
+            f'''
+import sys
+sys.path.insert(0, "{project_root}")
+from ai_gba_player.core.unified_game_service import start_unified_service
+import json
+
+# Load config
+with open("{project_root}/config_emulator.json", "r") as f:
+    config = json.load(f)
+
+# Start service
+result = start_unified_service(config)
+print(f"Service start result: {{result}}")
+'''
+        ]
         
-        if service_exists and config_exists:
-            process = subprocess.Popen([
-                'python', str(service_script), 
-                '--config', str(config_file),
-                '--debug'
-            ], 
+        # Run the command
+        result = subprocess.run(
+            cmd, 
             cwd=str(project_root),
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE
-            )
-            
-            time.sleep(3)
-            
-            if process.poll() is None:
-                return JsonResponse({
-                    'success': True,
-                    'message': '✅ Unified service started successfully!'
-                })
-            else:
-                stdout, stderr = process.communicate()
-                return JsonResponse({
-                    'success': False,
-                    'message': f'❌ Service failed to start: {stderr[:200]}'
-                })
+            capture_output=True, 
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            return JsonResponse({
+                'success': True,
+                'message': '✅ Unified service started successfully!'
+            })
         else:
-            missing_files = []
-            if not service_exists:
-                missing_files.append(f'Service script: {service_script}')
-            if not config_exists:
-                missing_files.append(f'Config file: {config_file}')
-            
+            error_msg = result.stderr if result.stderr else result.stdout
             return JsonResponse({
                 'success': False,
-                'message': f'❌ Missing files: {"; ".join(missing_files)}'
+                'message': f'❌ Service failed to start: {error_msg[:300]}'
             })
             
+    except subprocess.TimeoutExpired:
+        return JsonResponse({
+            'success': False,
+            'message': '❌ Service startup timed out'
+        })
     except Exception as e:
         return JsonResponse({
             'success': False,

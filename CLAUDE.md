@@ -80,35 +80,38 @@ The system includes **8 implemented knowledge features** that dramatically impro
 ### Running the AI GBA Player
 ```bash
 # Install dependencies
-pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python
+pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python django
 
-# Start AI GBA Player (RECOMMENDED)
+# Start AI GBA Player (RECOMMENDED - Single Command)
+python main.py
+
+# Alternative: Manual startup for development
 cd ai_gba_player
 python manage.py runserver
-
-# Launch unified service via web interface or command line
-python manage.py start_process unified_service --config config_emulator.json
-
-# Alternative: Direct startup for development (deprecated - use Django commands)
-python -m ai_gba_player.core.unified_game_service --config config_emulator.json
+# Then configure and start service via web interface
 ```
 
-### Setup Sequence (CRITICAL ORDER)
-1. Start mGBA and load any GBA ROM (currently optimized for Pokémon Red)
-2. **Recommended**: Start AI GBA Player: `cd ai_gba_player && python manage.py runserver`
-3. **Start unified service**: `python manage.py start_process unified_service`
-4. Update project path in `emulator/script.lua` if needed
-5. In mGBA: Tools > Script Viewer > Load `emulator/script.lua`
+### Setup Sequence (SIMPLIFIED)
+1. **Start AI GBA Player**: `python main.py`
+   - Automatically starts Django server
+   - Opens dashboard in browser
+   - Handles all process management
+2. **Configure in web interface** (http://localhost:8000):
+   - Set your API key and LLM provider in "🤖 AI Settings"
+   - Configure ROM and mGBA paths in "🎮 ROM Configuration"
+   - Click "🎮 Launch mGBA" to start emulator with ROM
+   - Click "▶️ Start AI Service" to begin AI gameplay
+3. **In mGBA**: Tools > Script Viewer > Load `emulator/script.lua`
 
 ### AI GBA Player Access
-- **Web Interface**: http://localhost:8000 (main interface)
-- **Game Monitor**: http://localhost:8000/ (live gameplay)
-- **System Control**: http://localhost:8000/admin-panel/ (process management)
-- **Django Admin**: http://localhost:8000/admin/ (system administration)
+- **Main Dashboard**: http://localhost:8000 (chat interface + configuration)
+- **Real-time AI Chat**: Shows screenshots sent to AI and AI text responses
+- **Service Controls**: Built into main dashboard (start/stop service, launch mGBA)
+- **Configuration Management**: ROM paths, API keys, AI settings
 
 ### Testing Components
 ```bash
-# Test AI GBA Player functionality
+# Test AI GBA Player web interface
 cd ai_gba_player
 python manage.py test
 
@@ -118,7 +121,12 @@ python tests/test_dialogue_recording.py
 python tests/test_context_prioritization.py
 python tests/test_tutorial_progress.py
 
-# Test individual Lua components in mGBA Script Viewer
+# Test system components via web interface
+curl -X POST http://localhost:8000/api/launch-mgba-config/     # Test mGBA launch
+curl -X POST http://localhost:8000/api/restart-service/        # Test service start
+curl -X POST http://localhost:8000/api/save-ai-config/         # Test configuration
+
+# Test Lua components in mGBA Script Viewer
 emulator/test_memory.lua      # Memory address testing
 emulator/key_press_test.lua   # Button input testing  
 emulator/screenshot_test.lua  # Screenshot capture testing
@@ -127,56 +135,53 @@ emulator/screenshot_test.lua  # Screenshot capture testing
 ## Project Structure
 
 ```
-LLM_mGBA/
+AI-GBA-Player/
+├── main.py                            # 🚀 MAIN LAUNCHER (start here!)
 ├── README.md                          # Main documentation
 ├── CLAUDE.md                          # This file - project guidance
-├── ai_gba_player/                     # AI GBA Player web interface (MAIN FEATURE)
+├── config_emulator.json               # Main configuration file
+├── ai_gba_player/                     # 🎮 AI GBA Player web interface (MAIN FEATURE)
 │   ├── manage.py                      # Django management commands
 │   ├── ai_gba_player/                 # Django project settings
 │   │   ├── settings.py                # Django configuration
 │   │   ├── urls.py                    # URL routing
+│   │   ├── simple_views.py            # Main chat interface & configuration
 │   │   └── wsgi.py                    # WSGI configuration
-│   ├── dashboard/                     # Django app for game monitoring
-│   │   ├── models.py                  # Data models
-│   │   ├── views.py                   # Web views
-│   │   ├── templates/dashboard/       # HTML templates
-│   │   │   ├── base.html              # Base template with GBA theme
-│   │   │   ├── dashboard.html         # Game monitor interface
-│   │   │   └── admin_panel.html       # System control interface
-│   │   └── static/dashboard/          # Static files
-│   │       ├── css/gba-theme.css      # GBA universal theme
-│   │       └── js/dashboard.js        # Dashboard JavaScript
-│   └── management/                    # Django management commands
-│       └── commands/                  # Process control commands
-├── config_emulator.json               # Main configuration file
-├── core/                              # Core system components
+│   ├── core/                          # Core threaded service
+│   │   └── unified_game_service.py    # 🎯 Main AI service (video + game control)
+│   └── dashboard/                     # Django app for advanced features
+│       ├── models.py                  # Data models
+│       ├── views.py                   # Web views
+│       ├── management/commands/       # Process control commands
+│       └── static/dashboard/          # Static files
+├── core/                              # 🧠 Core system components
 │   ├── base_knowledge_system.py       # Knowledge management system (80+ methods)
 │   ├── base_capture_system.py         # Video capture system
 │   ├── screen_capture.py              # Screen capture backends
 │   ├── base_game_controller.py        # Main controller logic
-│   ├── base_game_engine.py           # Game state handling
-│   └── base_prompt_template.py       # Prompt formatting system
-├── games/pokemon_red/                 # Pokemon Red implementation (extensible framework)
+│   ├── logging_config.py              # Logging system
+│   └── message_bus.py                 # Inter-process communication
+├── games/pokemon_red/                 # 🎮 Pokemon Red implementation (extensible framework)
 │   ├── controller.py                  # Pokemon Red controller with knowledge integration
 │   ├── knowledge_system.py            # Game-specific knowledge management
-│   ├── prompt_template.py            # Pokemon Red prompts with enhanced formatting
-│   └── game_engine.py                # Pokemon Red game logic
-├── emulator/                          # mGBA Lua scripts
-│   └── script.lua                     # Main emulator script with enhanced state tracking
-├── tests/                             # Comprehensive test suite
+│   ├── prompt_template.py             # Pokemon Red prompts with enhanced formatting
+│   └── game_engine.py                 # Pokemon Red game logic
+├── emulator/                          # 🕹️ mGBA Lua scripts
+│   ├── script.lua                     # Main emulator script with enhanced state tracking
+│   ├── key_press_test.lua             # Button testing
+│   └── test_memory.lua                # Memory testing
+├── tests/                             # 🧪 Comprehensive test suite
 │   ├── test_conversation_tracking.py  # Conversation state tracking tests
 │   ├── test_dialogue_recording.py     # Dialogue memory system tests
 │   ├── test_context_prioritization.py # Smart context prioritization tests
-│   ├── test_tutorial_progress.py      # Tutorial progress tracking tests
-│   ├── test_dashboard_websocket.py    # WebSocket integration testing
-│   └── test_complete_system.py        # Full system validation
-├── data/                              # Data and configuration
+│   └── test_tutorial_progress.py      # Tutorial progress tracking tests
+├── data/                              # 📊 Data and storage
 │   ├── knowledge_graph.json           # Persistent knowledge storage
 │   ├── screenshots/                   # Game screenshots
-│   └── prompt_template.txt             # Base AI prompt template
-├── knowledge_inspector.py             # Knowledge base inspection tools
-├── monitor_knowledge.py               # Real-time knowledge monitoring
-└── notepad.txt                        # Long-term game progress memory
+│   ├── videos/                        # AI video analysis
+│   └── prompt_template.txt            # Base AI prompt template
+├── requirements.txt                   # Python dependencies
+└── notepad.txt                        # Long-term AI memory file
 ```
 
 ## Configuration System

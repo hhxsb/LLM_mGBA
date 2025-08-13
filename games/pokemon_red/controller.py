@@ -120,7 +120,7 @@ Game started: {timestamp}
             successful_action = call.arguments.get("successful_action", "")
             if situation and successful_action:
                 # This would integrate with the knowledge system's failure patterns
-                self.logger.success(f"Recorded successful strategy: {successful_action[:50]}...")
+                self.logger.info(f"✅ Recorded successful strategy: {successful_action[:50]}...")
         
         elif call.name == "detect_goal":
             goal_description = call.arguments.get("goal_description", "")

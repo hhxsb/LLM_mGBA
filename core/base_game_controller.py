@@ -155,7 +155,7 @@ class BaseGameController(ABC):
         try:
             capture_system = CaptureSystemFactory.create_system(capture_type, capture_config)
             if capture_system.initialize():
-                self.logger.success(f"Initialized {capture_type} capture system")
+                self.logger.info(f"✅ Initialized {capture_type} capture system")
                 return capture_system
             else:
                 self.logger.error(f"Failed to initialize {capture_type} capture system")
@@ -195,7 +195,7 @@ class BaseGameController(ABC):
             
             self.server_socket.listen(1)
             self.server_socket.settimeout(1)
-            self.logger.success(f"Socket server set up on {host}:{port}")
+            self.logger.info(f"✅ Socket server set up on {host}:{port}")
             
         except socket.error as e:
             self.logger.error(f"Socket setup error: {e}")
@@ -228,7 +228,7 @@ class BaseGameController(ABC):
                     self.server_socket = None
                 except:
                     pass
-            self.logger.success("Cleanup complete")
+            self.logger.info("✅ Cleanup complete")
             time.sleep(0.5)
     
     def process_screenshot(self, screenshot_path: str = None) -> Optional[Dict[str, Any]]:
@@ -555,7 +555,7 @@ class BaseGameController(ABC):
                 for i, frame in enumerate(video_segment.frames):
                     f.write(f"Frame {i:03d}: {frame.timestamp:.2f}s - Size: {frame.image.size}\n")
             
-            self.logger.success(f"💾 Saved {frame_count} frames to {segment_dir}")
+            self.logger.info(f"💾 Saved {frame_count} frames to {segment_dir}")
             
             # Clean up old captures to prevent disk space growth
             cleanup_config = self.config.get('capture_system', {}).get('auto_cleanup', {})
@@ -650,7 +650,7 @@ class BaseGameController(ABC):
                 for i, description in enumerate(frame_descriptions):
                     f.write(f"Frame {i+1:02d}: {description}\n")
             
-            self.logger.success(f"🤖 Saved {len(images)} AI frames to {ai_request_dir}")
+            self.logger.info(f"🤖 Saved {len(images)} AI frames to {ai_request_dir}")
             
             # Clean up old captures to prevent disk space growth
             cleanup_config = self.config.get('capture_system', {}).get('auto_cleanup', {})
@@ -1477,7 +1477,7 @@ class BaseGameController(ABC):
                 except:
                     pass
             self.cleanup()
-            self.logger.success("Server shut down cleanly")
+            self.logger.info("✅ Server shut down cleanly")
     
     def _handle_client_connection(self, client_socket, client_address):
         """Wrapper around handle_client with error handling."""
