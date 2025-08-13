@@ -1,1 +1,0 @@
-# Core Django app modules

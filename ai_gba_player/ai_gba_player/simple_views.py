@@ -108,14 +108,14 @@ def dashboard_view(request):
             <div class="config-header">
                 <h2>🎮 AI GBA Player</h2>
                 <div class="status-indicator" id="service-status">
-                    <span class="status-stopped">⏸️ Service Stopped</span>
+                    <span class="status-stopped">🔌 Connection Ready</span>
                 </div>
             </div>
             <div class="config-content">
                 <div class="config-section">
-                    <h3>🚀 Service Control</h3>
-                    <button class="btn btn-success" onclick="startService()">▶️ Start AI Service</button>
-                    <button class="btn btn-outline" onclick="stopService()">⏸️ Stop Service</button>
+                    <h3>🔗 mGBA Connection</h3>
+                    <button class="btn btn-success" onclick="startService()">🔗 Reset mGBA Connection</button>
+                    <button class="btn btn-outline" onclick="stopService()">🔌 Stop Connection</button>
                     <button class="btn btn-primary" onclick="launchMGBA()">🎮 Launch mGBA</button>
                 </div>
                 <div class="config-section">
@@ -178,9 +178,90 @@ def dashboard_view(request):
     <script>
         let messageCount = 0;
         let autoScroll = true;
+        let lastMessageCount = 0;
+        let pollingInterval = null;
+        
+        // Start polling for messages when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            startMessagePolling();
+        });
+        
+        function startMessagePolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            
+            pollingInterval = setInterval(pollForMessages, 2000); // Poll every 2 seconds
+            pollForMessages(); // Initial poll
+        }
+        
+        function pollForMessages() {
+            fetch('/api/chat-messages/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.messages) {
+                        // Only show new messages
+                        const newMessages = data.messages.slice(lastMessageCount);
+                        if (newMessages.length > 0) {
+                            newMessages.forEach(message => {
+                                displayMessage(message);
+                            });
+                            lastMessageCount = data.messages.length;
+                        }
+                        
+                        // Update service status
+                        updateServiceStatusFromData(data);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling messages:', error);
+                });
+        }
+        
+        function displayMessage(message) {
+            if (message.type === 'system') {
+                addSystemMessage(message.content, message.timestamp);
+            } else if (message.type === 'screenshot') {
+                addScreenshotMessage(message.image_data, message.game_state, message.timestamp);
+            } else if (message.type === 'ai_response') {
+                addAIResponse(message.text, message.actions, message.timestamp);
+            }
+        }
+        
+        function addScreenshotMessage(imageData, gameState, timestamp = null) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-sent';
+            
+            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+            
+            messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    <div style="font-weight: 500; margin-bottom: 4px;">📤 Screenshot Sent to AI</div>
+                    <img src="${imageData}" class="message-image" alt="Game screenshot">
+                    <div style="font-size: 12px; margin-top: 8px; color: #6b7280;">${gameState}</div>
+                </div>
+                <div class="message-timestamp">${timeStr}</div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            updateMessageCount();
+            scrollToBottom();
+        }
+        
+        function updateServiceStatusFromData(data) {
+            if (data.status === 'running' && data.connected) {
+                updateServiceStatus('🔗 Connected to mGBA', 'running');
+            } else if (data.status === 'running' && !data.connected) {
+                updateServiceStatus('⏳ Waiting for mGBA', 'running');
+            } else if (data.status === 'stopped') {
+                updateServiceStatus('🔌 Connection Ready', 'stopped');
+            } else {
+                updateServiceStatus('❌ Error', 'error');
+            }
+        }
         
         function startService() {
-            updateServiceStatus('🔄 Starting...', 'starting');
+            updateServiceStatus('🔄 Connecting...', 'starting');
             fetch('/api/restart-service/', {
                 method: 'POST',
                 headers: { 'X-CSRFToken': getCookie('csrftoken') }
@@ -188,21 +269,21 @@ def dashboard_view(request):
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    updateServiceStatus('✅ Running', 'running');
-                    addSystemMessage('AI service started successfully');
+                    updateServiceStatus('🔗 Connected', 'running');
+                    addSystemMessage(data.message);
                 } else {
                     updateServiceStatus('❌ Error', 'error');
-                    addSystemMessage('Failed to start service: ' + data.message);
+                    addSystemMessage('Connection failed: ' + data.message);
                 }
             })
             .catch(error => {
                 updateServiceStatus('❌ Error', 'error');
-                addSystemMessage('Error starting service: ' + error.message);
+                addSystemMessage('Connection error: ' + error.message);
             });
         }
         
         function stopService() {
-            updateServiceStatus('⏸️ Stopping...', 'stopping');
+            updateServiceStatus('🔌 Disconnecting...', 'stopping');
             fetch('/api/stop-service/', {
                 method: 'POST',
                 headers: { 'X-CSRFToken': getCookie('csrftoken') }
@@ -210,16 +291,16 @@ def dashboard_view(request):
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    updateServiceStatus('⏸️ Service Stopped', 'stopped');
+                    updateServiceStatus('🔌 Connection Ready', 'stopped');
                     addSystemMessage(data.message);
                 } else {
                     updateServiceStatus('❌ Error', 'error');
-                    addSystemMessage('Failed to stop service: ' + data.message);
+                    addSystemMessage('Failed to disconnect: ' + data.message);
                 }
             })
             .catch(error => {
                 updateServiceStatus('❌ Error', 'error');
-                addSystemMessage('Error stopping service: ' + error.message);
+                addSystemMessage('Disconnect error: ' + error.message);
             });
         }
         
@@ -280,16 +361,19 @@ def dashboard_view(request):
             statusEl.innerHTML = '<span class="status-' + status + '">' + text + '</span>';
         }
         
-        function addSystemMessage(text) {
+        function addSystemMessage(text, timestamp = null) {
             const messagesContainer = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message message-received';
+            
+            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+            
             messageDiv.innerHTML = `
                 <div class="message-bubble">
                     <div style="font-weight: 500; margin-bottom: 4px;">🤖 System</div>
                     <div>${text}</div>
                 </div>
-                <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
+                <div class="message-timestamp">${timeStr}</div>
             `;
             
             const welcome = messagesContainer.querySelector('.welcome-message');
@@ -315,10 +399,12 @@ def dashboard_view(request):
             scrollToBottom();
         }
         
-        function addAIResponse(response, actions) {
+        function addAIResponse(response, actions, timestamp = null) {
             const messagesContainer = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message message-received';
+            
+            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
             
             let actionsHtml = '';
             if (actions && actions.length > 0) {
@@ -333,7 +419,7 @@ def dashboard_view(request):
                     <div>${response}</div>
                     ${actionsHtml}
                 </div>
-                <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
+                <div class="message-timestamp">${timeStr}</div>
             `;
             messagesContainer.appendChild(messageDiv);
             updateMessageCount();
@@ -349,6 +435,7 @@ def dashboard_view(request):
                 </div>
             `;
             messageCount = 0;
+            lastMessageCount = 0; // Reset message tracking
             updateMessageCount();
         }
         
@@ -471,65 +558,110 @@ def config_view(request):
     return HttpResponse(html_content)
 
 def restart_service(request):
-    """Restart the unified service using direct subprocess call"""
+    """Start/restart the AI Game Service"""
     try:
-        # Stop any existing unified service processes
-        subprocess.run(['pkill', '-f', 'unified_game_service'], check=False)
-        time.sleep(2)
+        # Import the new AI service
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
         
-        # Get the project root directory
-        current_dir = Path(__file__).parent  # ai_gba_player/ai_gba_player/
-        project_root = current_dir.parent.parent  # Go up to LLM-Pokemon-Red/
+        from dashboard.ai_game_service import start_ai_service, stop_ai_service, is_ai_service_running
         
-        # Start the service directly using Python with proper path
-        cmd = [
-            'python', '-c',
-            f'''
-import sys
-sys.path.insert(0, "{project_root}")
-from ai_gba_player.core.unified_game_service import start_unified_service
-import json
-
-# Load config
-with open("{project_root}/config_emulator.json", "r") as f:
-    config = json.load(f)
-
-# Start service
-result = start_unified_service(config)
-print(f"Service start result: {{result}}")
-'''
-        ]
+        # Stop any existing service
+        if is_ai_service_running():
+            stop_ai_service()
+            time.sleep(1)
         
-        # Run the command
-        result = subprocess.run(
-            cmd, 
-            cwd=str(project_root),
-            capture_output=True, 
-            text=True,
-            timeout=30
-        )
+        # Start the AI service
+        success = start_ai_service()
         
-        if result.returncode == 0:
+        if success:
             return JsonResponse({
                 'success': True,
-                'message': '✅ Unified service started successfully!'
+                'message': '✅ mGBA connection ready!'
             })
         else:
-            error_msg = result.stderr if result.stderr else result.stdout
             return JsonResponse({
                 'success': False,
-                'message': f'❌ Service failed to start: {error_msg[:300]}'
+                'message': '❌ Failed to start AI service'
             })
             
-    except subprocess.TimeoutExpired:
-        return JsonResponse({
-            'success': False,
-            'message': '❌ Service startup timed out'
-        })
     except Exception as e:
         return JsonResponse({
             'success': False,
             'message': f'❌ Error: {str(e)}'
+        })
+
+def stop_service(request):
+    """Stop the AI Game Service"""
+    try:
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        
+        from dashboard.ai_game_service import stop_ai_service, is_ai_service_running
+        
+        if is_ai_service_running():
+            success = stop_ai_service()
+            if success:
+                return JsonResponse({
+                    'success': True,
+                    'message': '⏸️ mGBA connection stopped'
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'message': '❌ Failed to stop AI service'
+                })
+        else:
+            return JsonResponse({
+                'success': True,
+                'message': '⏸️ Service was not running'
+            })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'❌ Error: {str(e)}'
+        })
+
+def get_chat_messages(request):
+    """Get recent chat messages and service status"""
+    try:
+        from dashboard.ai_game_service import get_ai_service
+        
+        service = get_ai_service()
+        if service and service.is_alive():
+            # Get messages from service
+            messages = getattr(service, 'chat_messages', [])
+            
+            return JsonResponse({
+                'success': True,
+                'messages': messages,
+                'connected': service.mgba_connected,
+                'decision_count': getattr(service, 'decision_count', 0),
+                'status': 'running'
+            })
+        else:
+            return JsonResponse({
+                'success': True, 
+                'messages': [],
+                'connected': False,
+                'decision_count': 0,
+                'status': 'stopped'
+            })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'messages': [],
+            'connected': False,
+            'decision_count': 0,
+            'status': 'error'
         })
 
 def launch_mgba_config(request):
@@ -741,16 +873,21 @@ def _update_main_config_file(provider, api_key, cooldown):
         return False
 
 def stop_service(request):
-    """Stop the unified service"""
+    """Stop the AI service"""
     try:
-        # Kill any existing processes
-        import subprocess
-        subprocess.run(['pkill', '-f', 'unified_game_service.py'], check=False)
+        from dashboard.ai_game_service import stop_ai_service
         
-        return JsonResponse({
-            'success': True,
-            'message': 'AI service stopped successfully'
-        })
+        success = stop_ai_service()
+        if success:
+            return JsonResponse({
+                'success': True,
+                'message': 'AI service stopped successfully'
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Failed to stop AI service'
+            })
     except Exception as e:
         return JsonResponse({
             'success': False,

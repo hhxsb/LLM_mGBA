@@ -30,7 +30,7 @@ urlpatterns = [
     path('api/launch-mgba-config/', csrf_exempt(simple_views.launch_mgba_config), name='launch_mgba_config'),
     path('api/save-rom-config/', csrf_exempt(simple_views.save_rom_config), name='save_rom_config'),
     path('api/save-ai-config/', csrf_exempt(simple_views.save_ai_config), name='save_ai_config'),
-    path('api/chat-message/', csrf_exempt(simple_views.chat_message), name='chat_message'),
+    path('api/chat-messages/', csrf_exempt(simple_views.get_chat_messages), name='get_chat_messages'),
 ]
 
 # Serve static and media files in development
