@@ -54,6 +54,20 @@ class AIGameService(threading.Thread):
         # LLM client
         self.llm_client = None
         
+        # Memory system
+        self.notepad_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/notepad.txt")
+        self.recent_actions = []
+        self.max_recent_actions = 10
+        
+        # Game state tracking
+        self.player_direction = "UNKNOWN"
+        self.player_x = 0
+        self.player_y = 0
+        self.map_id = 0
+        
+        # Initialize notepad
+        self._initialize_notepad()
+        
         print(f"🎮 AIGameService initialized - will listen on {self.host}:{self.port}")
     
     def run(self):
@@ -168,9 +182,11 @@ class AIGameService(threading.Thread):
     def _process_mgba_message(self, message: str):
         """Process messages received from mGBA Lua script"""
         try:
-            if message == "ready":
+            if message.startswith("ready"):
                 self._handle_ready_message()
-            elif message.startswith("screenshot_data"):
+            elif message.startswith("screenshot_with_state"):
+                self._handle_screenshot_data(message)
+            elif message.startswith("enhanced_screenshot_with_state"):
                 self._handle_screenshot_data(message)
             else:
                 print(f"🤔 Unknown message from mGBA: {message}")
@@ -187,12 +203,13 @@ class AIGameService(threading.Thread):
     def _handle_screenshot_data(self, message: str):
         """Handle screenshot data from mGBA and process through AI"""
         try:
-            # Parse: "screenshot_data|path|x|y|direction|mapId"
-            parts = message.split("|")
+            # Parse: "screenshot_with_state||path||direction||x||y||mapId"
+            parts = message.split("||")
             if len(parts) >= 6:
+                message_type = parts[0]
                 screenshot_path = parts[1]
-                x, y = int(parts[2]), int(parts[3])
-                direction = parts[4]
+                direction = parts[2]
+                x, y = int(parts[3]), int(parts[4])
                 map_id = int(parts[5])
                 
                 game_state = {
@@ -202,6 +219,7 @@ class AIGameService(threading.Thread):
                 }
                 
                 print(f"📷 Processing screenshot: {screenshot_path}")
+                print(f"🎮 Game state: Position({x}, {y}), Direction={direction}, Map={map_id}")
                 self._process_ai_decision(screenshot_path, game_state)
             else:
                 print(f"⚠️ Invalid screenshot data format: {message}")
@@ -212,6 +230,12 @@ class AIGameService(threading.Thread):
     def _process_ai_decision(self, screenshot_path: str, game_state: Dict[str, Any]):
         """Process screenshot through AI and send commands back to mGBA"""
         try:
+            # Update game state tracking
+            self.player_x = game_state.get('position', {}).get('x', 0)
+            self.player_y = game_state.get('position', {}).get('y', 0) 
+            self.player_direction = game_state.get('direction', 'UNKNOWN')
+            self.map_id = game_state.get('map_id', 0)
+            
             # Show screenshot in chat (sent message)
             self._send_screenshot_message(screenshot_path, game_state)
             
@@ -221,27 +245,45 @@ class AIGameService(threading.Thread):
                 self._send_chat_message("system", "❌ No AI configuration found")
                 return
             
-            # TODO: Process through AI (placeholder for now)
-            ai_response = self._call_ai_api(screenshot_path, game_state, config)
+            # Get recent actions text for enhanced context
+            recent_actions_text = self._get_recent_actions_text()
+            
+            # Process through AI with enhanced context
+            ai_response = self._call_ai_api(screenshot_path, game_state, config, recent_actions_text)
             
             # Show AI response in chat (received message)
             self._send_ai_response_message(ai_response)
             
-            # Send button commands to mGBA
+            # Process tool calls (notepad updates and button actions)
+            actions_to_send = []
             if ai_response.get("actions"):
-                self._send_button_commands(ai_response["actions"])
+                actions_to_send = ai_response["actions"]
+                
+                # Add to recent actions history
+                reasoning = ai_response.get("text", "No reasoning provided")
+                if actions_to_send:
+                    self._add_recent_action(actions_to_send[0], reasoning, game_state)
+                
+                # Send button commands to mGBA  
+                self._send_button_commands(actions_to_send)
             
             self.decision_count += 1
             
             # Wait for cooldown, then request next screenshot
             cooldown = config.get("decision_cooldown", 3)
+            print(f"⏳ Waiting {cooldown}s cooldown before next decision...")
             time.sleep(cooldown)
-            self._request_screenshot()
+            
+            # Only request next screenshot if still connected
+            if self.mgba_connected:
+                self._request_screenshot()
+            else:
+                print("⚠️ Skipping screenshot request - mGBA disconnected")
             
         except Exception as e:
             print(f"❌ AI decision error: {e}")
             traceback.print_exc()
-            self._send_chat_message("system", f"❌ AI decision error: {str(e)}")
+            self._handle_ai_processing_error(e, screenshot_path, game_state)
     
     def _load_config(self) -> Optional[Dict[str, Any]]:
         """Load configuration from SQLite database"""
@@ -252,7 +294,7 @@ class AIGameService(threading.Thread):
             print(f"❌ Error loading config: {e}")
             return None
     
-    def _call_ai_api(self, screenshot_path: str, game_state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    def _call_ai_api(self, screenshot_path: str, game_state: Dict[str, Any], config: Dict[str, Any], recent_actions_text: str = "") -> Dict[str, Any]:
         """Call AI API with screenshot and game state"""
         try:
             # Initialize LLM client if needed
@@ -263,7 +305,7 @@ class AIGameService(threading.Thread):
             print(f"🤖 Calling {config.get('llm_provider', 'unknown')} API...")
             start_time = time.time()
             
-            result = self.llm_client.analyze_game_state(screenshot_path, game_state)
+            result = self.llm_client.analyze_game_state(screenshot_path, game_state, recent_actions_text)
             
             elapsed = time.time() - start_time
             print(f"⏱️ AI response received in {elapsed:.1f}s")
@@ -273,44 +315,82 @@ class AIGameService(threading.Thread):
         except Exception as e:
             print(f"❌ AI API call failed: {e}")
             traceback.print_exc()
+            
+            # Intelligent fallback based on game state
+            fallback_action = self._get_intelligent_fallback_action(game_state)
+            
             return {
-                "text": f"AI API failed: {str(e)}. Using fallback actions.",
-                "actions": ["A"],  # Safe fallback
+                "text": f"AI API failed: {str(e)}. Using intelligent fallback: {fallback_action}",
+                "actions": [fallback_action],
                 "success": False,
                 "error": str(e)
             }
     
     def _request_screenshot(self):
-        """Request a screenshot from mGBA"""
-        if self.mgba_connected and self.client_socket:
+        """Request a screenshot from mGBA with retry logic"""
+        if not self.mgba_connected or not self.client_socket:
+            print("⚠️ Cannot request screenshot: mGBA not connected")
+            return False
+        
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
+                self.client_socket.settimeout(5.0)  # 5 second timeout
                 self.client_socket.send("request_screenshot\n".encode('utf-8'))
+                self.client_socket.settimeout(0.1)  # Reset timeout
                 print("📸 Requested screenshot from mGBA")
+                return True
+            except socket.timeout:
+                print(f"⚠️ Screenshot request timeout (attempt {attempt + 1}/{max_retries})")
             except Exception as e:
-                print(f"❌ Error requesting screenshot: {e}")
+                print(f"❌ Error requesting screenshot (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # Wait before retry
+        
+        print("❌ Failed to request screenshot after all retries")
+        self._send_chat_message("system", "❌ Failed to request screenshot - connection may be lost")
+        return False
     
     def _send_button_commands(self, actions: list):
-        """Send button commands to mGBA"""
+        """Send button commands to mGBA with enhanced error handling"""
         if not self.mgba_connected or not self.client_socket:
-            return
+            print("⚠️ Cannot send commands: mGBA not connected")
+            self._send_chat_message("system", "⚠️ Cannot send commands: mGBA not connected")
+            return False
         
         try:
-            # Convert action names to button codes (placeholder mapping)
+            # Convert action names to button codes
             button_map = {
                 "A": "0", "B": "1", "SELECT": "2", "START": "3",
                 "RIGHT": "4", "LEFT": "5", "UP": "6", "DOWN": "7", "R": "8", "L": "9"
             }
             
-            button_codes = [button_map.get(action, "0") for action in actions]
+            # Validate actions
+            valid_actions = [action for action in actions if action in button_map]
+            if not valid_actions:
+                print(f"⚠️ No valid actions in: {actions}")
+                valid_actions = ["A"]  # Fallback to safe action
+            
+            button_codes = [button_map[action] for action in valid_actions]
             command = ",".join(button_codes)
             
+            # Send with timeout protection
+            self.client_socket.settimeout(5.0)  # 5 second timeout
             self.client_socket.send(f"{command}\n".encode('utf-8'))
-            print(f"🎮 Sent button commands: {actions} -> {command}")
+            self.client_socket.settimeout(0.1)  # Reset to original timeout
             
-            self._send_chat_message("system", f"✅ Commands sent: {', '.join(actions)}")
+            print(f"🎮 Sent button commands: {valid_actions} -> {command}")
+            self._send_chat_message("system", f"✅ Commands sent: {', '.join(valid_actions)}")
+            return True
             
+        except socket.timeout:
+            print("❌ Button command timeout")
+            self._send_chat_message("system", "❌ Command sending timed out")
+            return False
         except Exception as e:
             print(f"❌ Error sending button commands: {e}")
+            self._send_chat_message("system", f"❌ Error sending commands: {str(e)}")
+            return False
     
     def _send_chat_message(self, message_type: str, content: str):
         """Send a message to the frontend chat interface"""
@@ -407,6 +487,151 @@ class AIGameService(threading.Thread):
                 )
         except Exception as e:
             print(f"❌ Error sending AI response message: {e}")
+    
+    def _initialize_notepad(self):
+        """Initialize the notepad file with clear game objectives"""
+        if not self.notepad_path.exists():
+            self.notepad_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self.notepad_path, 'w') as f:
+                f.write("# Pokémon Red Game Progress\n\n")
+                f.write(f"Game started: {timestamp}\n\n")
+                f.write("## Current Objectives\n- Enter my name 'GEMINI' and give my rival a name.\n\n")
+                f.write("## Exit my house\n\n")
+                f.write("## Current Objectives\n- Find Professor Oak to get first Pokémon\n- Start Pokémon journey\n\n")
+                f.write("## Current Location\n- Starting in player's house in Pallet Town\n\n")
+                f.write("## Game Progress\n- Just beginning the adventure\n\n")
+                f.write("## Items\n- None yet\n\n")
+                f.write("## Pokémon Team\n- None yet\n\n")
+    
+    def _read_notepad(self):
+        """Read the current notepad content"""
+        try:
+            with open(self.notepad_path, 'r') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error reading notepad: {e}")
+            return "Error reading notepad"
+    
+    def _update_notepad(self, new_content):
+        """Update the notepad"""
+        try:
+            current_content = self._read_notepad()
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            updated_content = current_content + f"\n## Update {timestamp}\n{new_content}\n"
+            with open(self.notepad_path, 'w') as f:
+                f.write(updated_content)
+            print("📝 Notepad updated")
+        except Exception as e:
+            print(f"❌ Error updating notepad: {e}")
+    
+    def _get_recent_actions_text(self):
+        """Get formatted text of recent actions with reasoning"""
+        if not self.recent_actions:
+            return "No recent actions."
+        
+        recent_actions_text = "## Short-term Memory (Recent Actions and Reasoning):\n"
+        for i, action in enumerate(self.recent_actions, 1):
+            timestamp = action.get('timestamp', 'unknown')
+            button = action.get('button', 'unknown')
+            reasoning = action.get('reasoning', 'no reasoning available')
+            direction = action.get('direction', 'unknown')
+            x, y = action.get('x', 0), action.get('y', 0)
+            map_id = action.get('map_id', 0)
+            
+            recent_actions_text += f"{i}. [{timestamp}] Pressed {button} while facing {direction} at position ({x}, {y}) on map {map_id}\n"
+            recent_actions_text += f"   Reasoning: {reasoning.strip()}\n\n"
+        return recent_actions_text
+    
+    def _get_map_name(self, map_id):
+        """Get map name from ID, with fallback for unknown maps"""
+        # Pokémon Red/Blue map IDs (incomplete, add more as needed)
+        map_names = {
+            0: "Pallet Town",
+            1: "Viridian City", 
+            2: "Pewter City",
+            3: "Cerulean City",
+            12: "Route 1",
+            13: "Route 2",
+            14: "Route 3",
+            15: "Route 4",
+            37: "Red's House 1F",
+            38: "Red's House 2F", 
+            39: "Blue's House",
+            40: "Oak's Lab",
+        }
+        
+        return map_names.get(map_id, f"Unknown Area (Map ID: {map_id})")
+    
+    def _add_recent_action(self, button: str, reasoning: str, game_state: Dict[str, Any]):
+        """Add an action to recent actions history"""
+        action = {
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'button': button,
+            'reasoning': reasoning,
+            'direction': game_state.get('direction', 'UNKNOWN'),
+            'x': game_state.get('position', {}).get('x', 0),
+            'y': game_state.get('position', {}).get('y', 0),
+            'map_id': game_state.get('map_id', 0)
+        }
+        
+        self.recent_actions.append(action)
+        if len(self.recent_actions) > self.max_recent_actions:
+            self.recent_actions.pop(0)
+    
+    def _get_intelligent_fallback_action(self, game_state: Dict[str, Any]) -> str:
+        """Get intelligent fallback action based on game state"""
+        map_id = game_state.get('map_id', 0)
+        direction = game_state.get('direction', 'UNKNOWN')
+        x, y = game_state.get('position', {}).get('x', 0), game_state.get('position', {}).get('y', 0)
+        
+        # If we've been in the same position for too long, try moving
+        if hasattr(self, '_last_position'):
+            if self._last_position == (x, y, map_id) and hasattr(self, '_stuck_count'):
+                self._stuck_count += 1
+                if self._stuck_count > 3:
+                    # Try different directions when stuck
+                    fallback_moves = ["UP", "DOWN", "LEFT", "RIGHT"]
+                    current_dir_index = fallback_moves.index(direction) if direction in fallback_moves else 0
+                    next_direction = fallback_moves[(current_dir_index + 1) % len(fallback_moves)]
+                    print(f"⚠️ Stuck detected, trying direction: {next_direction}")
+                    return next_direction
+            else:
+                self._stuck_count = 0
+        else:
+            self._stuck_count = 0
+        
+        self._last_position = (x, y, map_id)
+        
+        # Default fallback based on context
+        if map_id == 0:  # Pallet Town - likely need to explore
+            return "UP"
+        elif map_id in [37, 38]:  # Player's house - try to exit
+            return "DOWN"
+        elif map_id == 40:  # Oak's lab - interact
+            return "A"
+        else:
+            # General exploration
+            return "A"
+    
+    def _handle_ai_processing_error(self, error: Exception, screenshot_path: str, game_state: Dict[str, Any]):
+        """Handle AI processing errors with graceful recovery"""
+        error_msg = str(error)
+        
+        # Log the error with context
+        print(f"❌ AI Processing Error: {error_msg}")
+        print(f"📍 Context: Screenshot={screenshot_path}, GameState={game_state}")
+        
+        # Send error message to chat
+        self._send_chat_message("system", f"⚠️ AI processing error: {error_msg}")
+        
+        # Try to recover by using fallback
+        fallback_action = self._get_intelligent_fallback_action(game_state)
+        self._send_button_commands([fallback_action])
+        
+        # Request next screenshot after a delay
+        time.sleep(2)
+        self._request_screenshot()
     
     def _cleanup(self):
         """Clean up resources"""
