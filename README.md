@@ -1,233 +1,218 @@
 # AI GBA Player 🎮
 
-A universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. Features a modern web interface for real-time monitoring and control.
+A universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. Features a modern web interface with real-time chat monitoring.
 
 ## 🚀 Quick Start
 
 ### Simple Setup
 ```bash
-# Launch AI GBA Player
-python main.py
-```
+# 1. Start the web interface
+cd ai_gba_player
+python manage.py runserver
 
-This starts the web interface at **http://localhost:8000** where you can:
-- Configure your ROM and mGBA paths
-- Launch mGBA automatically 
-- Start the AI gaming service
-- Monitor AI gameplay in real-time
+# 2. Open browser to http://localhost:8000
+# 3. Configure ROM path, mGBA path, and AI settings
+# 4. Click "Launch mGBA" or start mGBA manually
+# 5. Click "Reset mGBA Connection" 
+# 6. In mGBA: Tools > Script Viewer > Load "emulator/script.lua"
+# 7. Watch the AI play in real-time!
+```
 
 ## ✨ Features
 
-### 🎯 **Game Monitor**
-- **Real-time Gameplay**: Watch AI play GBA games live via WebSocket streaming
-- **Game Footage**: Rolling video buffer with GIF generation and playback
-- **AI Decision Tracking**: Monitor AI reasoning and button press decisions
-- **Multi-game Support**: Designed to work with any GBA game
+### 💬 **Real-time Chat Interface**
+- **Screenshot Monitoring**: See exactly what the AI sees from the game
+- **AI Reasoning**: Read the AI's analysis and decision-making process
+- **Action Tracking**: Watch button commands being sent to the game
+- **System Status**: Live connection and service health monitoring
 
-### ⚙️ **System Control**
-- **Process Management**: Start, stop, restart game processes via web interface
-- **Health Monitoring**: Real-time CPU, memory, and system metrics
-- **Error Handling**: Comprehensive logging and error recovery
-- **Command Line Tools**: Full automation support via Django management commands
+### 🎯 **Universal Game Support**
+- **Game Agnostic**: Works with any GBA game, not just Pokémon
+- **Visual Understanding**: AI analyzes screenshots to make decisions
+- **Flexible Controls**: Supports all GBA controller inputs
+- **Easy ROM Management**: Simple file-based ROM configuration
 
-### 🎨 **Modern Interface** 
-- **GBA-Themed Design**: Retro color scheme inspired by Game Boy Advance hardware
-- **Responsive Layout**: Works on desktop, tablet, and mobile devices
-- **Real-time Updates**: WebSocket-powered live updates throughout the interface
-- **Professional Admin Panel**: Complete system control and monitoring
+### ⚙️ **Simple Configuration**
+- **Web-based Setup**: Configure everything through the browser interface
+- **Multiple LLM Providers**: Google Gemini, OpenAI, or Anthropic
+- **Database Storage**: Settings saved automatically in SQLite
+- **Auto mGBA Launch**: One-click emulator startup
+
+### 🔧 **Developer Friendly**
+- **Django Framework**: Modern Python web application
+- **Single Process**: No complex multi-process architecture
+- **Socket Communication**: Direct TCP connection with mGBA
+- **Extensible**: Easy to add new games and AI behaviors
 
 ## 🏗️ Architecture
 
-The AI GBA Player uses a unified threaded architecture for optimal performance:
+### Simple Two-Layer System
+1. **mGBA Emulator + Lua Script** (`emulator/script.lua`) - Game interface
+2. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django web app with AI service
 
+### Data Flow
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   mGBA Emulator │ -> │ Unified Game     │ -> │   AI GBA Player │
-│   + Lua Script  │    │ Service          │    │   Web Interface │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         │              ┌──────────────────┐              │
-         └------------- │ Video Capture    │ -------------┘
-                        │ Thread           │
-                        └──────────────────┘
+mGBA → Lua Script → Socket (Port 8888) → AIGameService → LLM API → Button Commands → Back to mGBA
+                                     ↓
+                            Real-time Chat Interface
+                         (Screenshots, AI Responses, Actions)
 ```
 
-### Core Components
+## 📦 Installation
 
-1. **AI GBA Player Web Interface** (`ai_gba_player/`)
-   - Django-based chat interface for real-time AI monitoring
-   - Configuration management for ROM, mGBA, and AI settings
-   - Simple message-based UI: images/videos sent, AI responses received
-
-2. **Unified Game Service** (`ai_gba_player/core/unified_game_service.py`)
-   - Integrated video capture and AI decision-making in threaded architecture
-   - LLM-powered game analysis with advanced knowledge management
-   - Direct emulator communication via Lua script interface
-
-3. **Game-Specific Modules** (`games/`)
-   - **Pokemon Red**: Fully implemented with advanced AI features
-   - **Extensible**: Easy addition of new games and AI behaviors
-
-## 📱 Web Interface
-
-### Chat-Based AI Monitor (`/`)
-- **Chat Interface**: Simple messaging interface for AI interaction
-- **Sent Messages**: Images and videos sent to AI for analysis
-- **Received Messages**: AI text responses with button action lists
-- **Configuration Panel**: Easy setup of ROM path, mGBA path, and AI settings
-- **Service Controls**: Start/stop AI gaming service with one click
-- **mGBA Integration**: Launch mGBA directly from the interface
-
-## 🎮 Supported Games
-
-### Currently Implemented
-- **Pokemon Red**: Complete implementation with advanced AI features
-  - Sophisticated knowledge management system
-  - NPC conversation tracking and tutorial progression
-  - Battle strategies and exploration algorithms
-
-### Easy to Add
-The framework is designed for easy game addition:
-1. Create game module in `games/your_game/`
-2. Implement game-specific controller and prompts
-3. Configure game detection and state management
-4. Launch with existing AI infrastructure
-
-## 🛠️ Setup & Installation
-
-### Prerequisites
+### Requirements
 - Python 3.11+
-- mGBA Emulator
-- Game Boy Advance ROM files
+- mGBA emulator
+- LLM API key (Google Gemini, OpenAI, or Anthropic)
 
-### Installation
+### Setup
 ```bash
-# Clone repository
-git clone <repository-url>
-cd LLM-Pokemon-Red
-
 # Install dependencies
 pip install -r requirements.txt
+
+# Run database migrations
+cd ai_gba_player
+python manage.py migrate
+
+# Start the web interface
+python manage.py runserver
 ```
+
+## 🎮 Usage
 
 ### Configuration
-1. **Start AI GBA Player**: Run `python main.py`
-2. **Visit Interface**: Go to http://localhost:8000
-3. **Configure Settings**: Set ROM path, mGBA path, and API key via web interface
-4. **Launch mGBA**: Click "Launch mGBA" to start emulator with your ROM
-5. **Load Script**: In mGBA, load `emulator/script.lua` via Tools > Script Viewer
-6. **Start AI Service**: Click "Start Service" to begin AI gameplay
+1. **ROM Setup**: Set path to your GBA ROM file
+2. **mGBA Setup**: Configure mGBA executable location
+3. **AI Settings**: Choose LLM provider and enter API key
+4. **Timing**: Set decision cooldown (3-6 seconds recommended)
 
-## 📊 Management
+### Running
+1. Start the web interface: `python manage.py runserver`
+2. Configure settings at http://localhost:8000
+3. Launch mGBA (manually or via "Launch mGBA" button)
+4. Start AI connection ("Reset mGBA Connection")
+5. Load Lua script in mGBA: `Tools > Script Viewer > Load emulator/script.lua`
 
-### Web Interface Controls
-All system management is available through the web interface:
-- **Service Control**: Start/stop AI gaming service
-- **Configuration**: Update ROM, mGBA, and AI settings
-- **mGBA Launch**: Automatically launch mGBA with configured ROM
-- **Real-time Monitoring**: Chat interface shows AI decisions and actions
+### Monitoring
+- **Chat Interface**: Real-time AI decisions and game state
+- **Service Status**: Connection health and activity monitoring
+- **Message History**: Scroll through AI conversation history
 
-### Alternative Command Line
-```bash
-# Django management commands (if needed)
-cd ai_gba_player
-python manage.py runserver                       # Start web interface only
-python manage.py start_process unified_service   # Start AI service directly
+## 🗂️ Project Structure
+
+```
+ai_gba_player/              # Django web application (MAIN)
+├── manage.py              # Django management
+├── ai_gba_player/         # Django project settings
+├── dashboard/             # Main Django app
+│   ├── ai_game_service.py # AI service (socket server + LLM)
+│   ├── llm_client.py      # LLM API client
+│   ├── models.py          # Database models
+│   └── templates/         # Web interface templates
+└── static/                # CSS/JS assets
+
+emulator/
+└── script.lua             # mGBA Lua script for game control
+
+data/
+├── screenshots/           # Game screenshots
+└── knowledge_graph.json   # AI memory system
+
+core/                      # Shared utilities
+├── base_knowledge_system.py
+├── base_game_controller.py
+└── screen_capture.py
+
+games/pokemon_red/         # Game-specific modules (extensible)
+├── controller.py
+├── knowledge_system.py
+└── prompt_template.py
 ```
 
-## 🌐 API & Integration
+## 🔧 Configuration Files
 
-### REST API
-- **Process Control**: `/api/processes/` - Start, stop, restart processes
-- **System Status**: `/api/status/` - Get real-time system information
-- **Message History**: `/api/messages/` - Retrieve gameplay chat history
+### Database Configuration (Primary)
+All settings are stored in SQLite database and configured via web interface:
+- ROM paths and game settings
+- LLM provider and API keys
+- Timing and behavior settings
 
-### WebSocket API
-- **Live Updates**: Real-time game footage, AI responses, and system status
-- **Bi-directional**: Send commands and receive live data streams
-- **Auto-reconnect**: Robust connection handling with exponential backoff
+### JSON Configuration (Legacy/Optional)
+`config_emulator.json` - Automatically updated when saving AI settings through web interface.
 
-## 🎯 Use Cases
+## 🤖 LLM Integration
 
-### AI Research
-- **Game AI Development**: Test and develop game-playing AI algorithms
-- **Multimodal AI**: Combine vision, language, and decision-making models
-- **Transfer Learning**: Study AI performance across different game genres
+### Supported Providers
+- **Google Gemini** (recommended): `gemini-2.0-flash-exp`
+- **OpenAI**: `gpt-4o` or `gpt-4o-mini`
+- **Anthropic**: Claude models
 
-### Entertainment
-- **AI Streaming**: Watch AI play games with real-time commentary
-- **Game Completion**: Let AI complete games while you monitor progress
-- **Challenge Runs**: Set up AI to attempt specific game challenges
+### AI Capabilities
+- **Visual Analysis**: Analyzes game screenshots to understand current state
+- **Decision Making**: Chooses appropriate button actions based on game state
+- **Tool Calling**: Uses `press_button` function to send commands to mGBA
+- **Error Recovery**: Fallback actions when AI requests fail
 
-### Education
-- **AI Demonstration**: Show how modern AI systems make decisions
-- **Game Analysis**: Study game mechanics through AI perspective  
-- **Programming Education**: Learn about web development, AI, and system architecture
+## 🧪 Testing
 
-## 🔧 Customization
+```bash
+# Test AI service communication
+python test_ai_service.py
 
-### Adding New Games
-1. Create game directory: `games/your_game/`
-2. Implement required modules:
-   - `controller.py` - Game-specific AI controller
-   - `game_engine.py` - Game state management
-   - `prompt_template.py` - LLM prompts for the game
-3. Register game in system configuration
-4. Test with existing infrastructure
+# Run Django tests
+cd ai_gba_player
+python manage.py test
+```
 
-### Extending AI Capabilities
-- **Knowledge Systems**: Add game-specific memory and learning
-- **Decision Algorithms**: Implement custom AI strategies
-- **Multi-agent**: Coordinate multiple AI systems
-- **Real-time Learning**: Adapt AI behavior during gameplay
+## 🛠️ Troubleshooting
+
+### Common Issues
+- **mGBA Connection Failed**: Check if mGBA is running and Lua script is loaded
+- **AI Service Won't Start**: Verify API key is configured correctly
+- **No Screenshots**: Ensure mGBA has ROM loaded and script is active
+- **Port Conflicts**: AI service uses port 8888 for mGBA communication
+
+### Debug Mode
+Enable verbose logging by adding `--debug` flag or checking Django logs for detailed error information.
+
+## 🎯 Key Features
+
+### Real-time Monitoring
+- Live screenshot feed showing what AI sees
+- AI reasoning and decision explanations
+- Button action confirmations
+- Connection status indicators
+
+### Easy Configuration
+- Browser-based setup (no manual config file editing)
+- Auto-detection of common mGBA installation paths
+- One-click ROM loading and emulator launch
+
+### Developer Features
+- Clean Django architecture
+- Simple socket-based communication
+- Extensible game module system
+- Comprehensive error handling
 
 ## 📚 Documentation
 
-- **Architecture Guide**: `wiki/architecture/system-overview.md`
-- **Feature Documentation**: `wiki/features/completed/`
-- **Setup Instructions**: `SETUP.md`
-- **Contributing Guide**: `CONTRIBUTING.md`
+- **Setup Guide**: Complete installation and configuration instructions
+- **API Reference**: Django models and service interfaces
+- **Game Integration**: How to add support for new GBA games
+- **Troubleshooting**: Common issues and solutions
 
-## 🏆 Key Features
+## 🤝 Contributing
 
-### Technical Excellence
-- ✅ **Production-Ready**: Django web framework with comprehensive error handling
-- ✅ **Real-time Performance**: WebSocket streaming with optimized video processing
-- ✅ **Scalable Architecture**: Multi-process design with clean separation of concerns
-- ✅ **Modern UI/UX**: Responsive design with professional admin interface
+Contributions welcome! The simplified architecture makes it easy to:
+- Add new LLM providers
+- Implement game-specific behaviors
+- Enhance the web interface
+- Improve AI decision-making
 
-### AI Capabilities  
-- ✅ **Visual Understanding**: AI analyzes game screenshots for decision-making
-- ✅ **Memory Management**: Sophisticated context and conversation tracking
-- ✅ **Strategic Planning**: Advanced reasoning for complex game scenarios
-- ✅ **Multi-game Support**: Framework designed for any GBA game
+## 📄 License
 
-### User Experience
-- ✅ **One-Command Setup**: Simple installation and startup process
-- ✅ **Web-based Interface**: No desktop app installation required
-- ✅ **Mobile-Friendly**: Full functionality on phones and tablets
-- ✅ **Real-time Monitoring**: Live gameplay with system health tracking
+Based on [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red) - Extended into a universal GBA gaming platform.
 
-## 🎮 Ready to Play!
+---
 
-The AI GBA Player transforms your Game Boy Advance games into an interactive AI showcase. Watch as artificial intelligence navigates complex game worlds, makes strategic decisions, and learns from gameplay - all through a beautiful, modern web interface.
-
-**Get started now:**
-```bash
-python main.py
-```
-
-Visit **http://localhost:8000** and experience the future of AI gaming! 🚀
-
-## Credits & Acknowledgments
-
-**This project is based on and extends the excellent work by [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red)**
-
-*Original LLM-Pokemon-Red Benchmark by Martoast (MIT License)*
-
-Key enhancements in this fork:
-- Unified web interface with Django and real-time monitoring
-- Multi-process architecture for improved performance
-- Universal framework designed for multiple GBA games
-- Modern responsive design with GBA theming
-- Professional process management and admin controls
+**Get started in 2 minutes**: `cd ai_gba_player && python manage.py runserver` → Open http://localhost:8000 🚀

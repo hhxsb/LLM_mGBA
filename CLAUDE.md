@@ -4,476 +4,283 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**AI GBA Player** is a universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. The system features a modern web interface for real-time monitoring and control, and is designed to be game-agnostic and extensible to any GBA title.
+**AI GBA Player** is a universal AI gaming framework that enables Large Language Models to play Game Boy Advance games through visual understanding and decision-making. The system features a modern Django web interface with real-time chat monitoring for AI gameplay.
 
 **Based on**: [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red) - Original Pokémon Red AI benchmark
 
 **Key Innovations**: 
-- **AI GBA Player Web Interface** - Modern Django-based web interface with real-time monitoring
-- **Universal game framework** designed to play any GBA game, not just Pokémon
-- **Unified threaded architecture** with integrated video capture and game control
-- **WebSocket streaming** for real-time AI decisions, GIFs, and system status
-- **Simplified deployment** - single Django process with threading instead of multiple processes
-- **Extensible game modules** allowing easy addition of new games and AI behaviors
+- **Simplified Architecture** - Single Django process with integrated AI service
+- **Real-time Chat Interface** - Monitor AI decisions, screenshots, and actions in real-time
+- **Universal Game Support** - Works with any GBA game, not just Pokémon
+- **Web-based Configuration** - No manual JSON editing, all settings via browser
+- **Socket Communication** - Direct TCP connection between mGBA and AI service
+- **Database Storage** - SQLite for configuration, no complex file management
 
 ## Core Architecture
 
-### Three-Layer Unified System with AI GBA Player Web Interface
+### Simple Two-Layer System
 1. **mGBA Emulator + Lua Script** (`emulator/script.lua`) - Game interface layer
-2. **Unified Game Service** (`ai_gba_player/core/unified_game_service.py`) - Threaded video capture and AI decision-making
-3. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django-based web interface with real-time monitoring
+2. **AI GBA Player Web Interface** (`ai_gba_player/`) - Django web app with integrated AI service
 
-### Enhanced Data Flow
+### Data Flow
 ```
-Emulator → Lua Script → Game Control Thread → Knowledge System → Enhanced Context → LLM → Button Commands → Back to Emulator
-                ↓                                    ↑
-        Video Capture Thread ← Screenshot Requests   │
-                ↓                                    │
-        AI GBA Player Interface ← WebSocket Streaming ───┘
-                (GIFs, AI Responses, Actions)
+mGBA → Lua Script → Socket (Port 8888) → AIGameService → LLM API → Button Commands → Back to mGBA
+                                     ↓
+                            Real-time Chat Interface
+                         (Screenshots, AI Responses, Actions)
 ```
 
-The system uses a **unified threaded architecture** with rolling video buffers, real-time web interface integration via WebSocket streaming, and **intelligent context management** that provides the LLM with optimally prioritized information for decision-making.
-
-## Knowledge System Architecture
-
-### Advanced Memory Management
-The system includes **8 implemented knowledge features** that dramatically improve AI performance:
-
-**High Priority (Phase 1 - Completed)**:
-- **Conversation State Tracking**: Maintains awareness of current NPC conversations
-- **Character Identity & Game Phase Tracking**: Consistent character identity (GEMINI) and tutorial progress
-- **Context Memory Buffer**: Rolling memory that builds on previous interactions
-- **Enhanced Prompt Formatting**: Critical information prominently displayed with visual indicators
-
-**Medium Priority (Phase 2 - Completed)**:
-- **Dialogue Recording & Memory**: Complete NPC interaction history with information extraction
-- **Conversation Flow Management**: Sophisticated dialogue phase detection and response guidance
-- **Smart Context Prioritization**: Dynamic relevance scoring for optimal context delivery
-- **Tutorial Progress Tracking**: 12-step Pokemon Red tutorial system with automatic progress detection
-
-### Memory Architecture
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Knowledge System                          │
-├─────────────────────────────────────────────────────────────┤
-│ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ │
-│ │ Conversation    │ │ Character       │ │ Context Memory  │ │
-│ │ State Tracking  │ │ Identity &      │ │ Buffer          │ │
-│ │                 │ │ Game Phase      │ │                 │ │
-│ └─────────────────┘ └─────────────────┘ └─────────────────┘ │
-│ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ │
-│ │ Dialogue        │ │ Conversation    │ │ Smart Context   │ │
-│ │ Recording &     │ │ Flow            │ │ Prioritization  │ │
-│ │ Memory          │ │ Management      │ │                 │ │
-│ └─────────────────┘ └─────────────────┘ └─────────────────┘ │
-│ ┌─────────────────┐ ┌─────────────────┐                     │
-│ │ Tutorial        │ │ Enhanced Prompt │                     │
-│ │ Progress        │ │ Formatting      │                     │
-│ │ Tracking        │ │                 │                     │
-│ └─────────────────┘ └─────────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-```
+The system uses a **simplified single-process architecture** with direct socket communication, real-time chat monitoring, and database-driven configuration.
 
 ## Key Commands
 
 ### Running the AI GBA Player
 ```bash
-# Install dependencies
-pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python django
-
-# Start AI GBA Player (RECOMMENDED - Single Command)
-python main.py
-
-# Alternative: Manual startup for development
+# Start the web interface (MAIN COMMAND)
 cd ai_gba_player
 python manage.py runserver
-# Then configure and start service via web interface
+
+# Access the web interface
+# Open browser to: http://localhost:8000
 ```
 
-### Setup Sequence (SIMPLIFIED)
-1. **Start AI GBA Player**: `python main.py`
-   - Automatically starts Django server
-   - Opens dashboard in browser
-   - Handles all process management
-2. **Configure in web interface** (http://localhost:8000):
-   - Set your API key and LLM provider in "🤖 AI Settings"
-   - Configure ROM and mGBA paths in "🎮 ROM Configuration"
-   - Click "🎮 Launch mGBA" to start emulator with ROM
-   - Click "▶️ Start AI Service" to begin AI gameplay
-3. **In mGBA**: Tools > Script Viewer > Load `emulator/script.lua`
-
-### AI GBA Player Access
-- **Main Dashboard**: http://localhost:8000 (chat interface + configuration)
-- **Real-time AI Chat**: Shows screenshots sent to AI and AI text responses
-- **Service Controls**: Built into main dashboard (start/stop service, launch mGBA)
-- **Configuration Management**: ROM paths, API keys, AI settings
+### Setup Sequence (SIMPLE)
+1. Start web interface: `cd ai_gba_player && python manage.py runserver`
+2. Configure ROM, mGBA, and AI settings at http://localhost:8000
+3. Click "Launch mGBA" or start mGBA manually
+4. Click "Reset mGBA Connection" to start AI service
+5. In mGBA: Tools > Script Viewer > Load `emulator/script.lua`
+6. Watch AI play in real-time chat interface
 
 ### Testing Components
 ```bash
-# Test AI GBA Player web interface
+# Test AI service communication
+python test_ai_service.py
+
+# Test Django app
 cd ai_gba_player
 python manage.py test
 
-# Test individual knowledge system features
-python tests/test_conversation_tracking.py
-python tests/test_dialogue_recording.py
-python tests/test_context_prioritization.py
-python tests/test_tutorial_progress.py
-
-# Test system components via web interface
-curl -X POST http://localhost:8000/api/launch-mgba-config/     # Test mGBA launch
-curl -X POST http://localhost:8000/api/restart-service/        # Test service start
-curl -X POST http://localhost:8000/api/save-ai-config/         # Test configuration
-
-# Test Lua components in mGBA Script Viewer
-emulator/test_memory.lua      # Memory address testing
-emulator/key_press_test.lua   # Button input testing  
-emulator/screenshot_test.lua  # Screenshot capture testing
+# Test mGBA connection (while Django server is running)
+curl -X POST http://localhost:8000/api/restart-service/
+curl http://localhost:8000/api/chat-messages/
 ```
 
 ## Project Structure
 
 ```
-AI-GBA-Player/
-├── main.py                            # 🚀 MAIN LAUNCHER (start here!)
-├── README.md                          # Main documentation
-├── CLAUDE.md                          # This file - project guidance
-├── config_emulator.json               # Main configuration file
-├── ai_gba_player/                     # 🎮 AI GBA Player web interface (MAIN FEATURE)
-│   ├── manage.py                      # Django management commands
-│   ├── ai_gba_player/                 # Django project settings
-│   │   ├── settings.py                # Django configuration
-│   │   ├── urls.py                    # URL routing
-│   │   ├── simple_views.py            # Main chat interface & configuration
-│   │   └── wsgi.py                    # WSGI configuration
-│   ├── core/                          # Core threaded service
-│   │   └── unified_game_service.py    # 🎯 Main AI service (video + game control)
-│   └── dashboard/                     # Django app for advanced features
-│       ├── models.py                  # Data models
-│       ├── views.py                   # Web views
-│       ├── management/commands/       # Process control commands
-│       └── static/dashboard/          # Static files
-├── core/                              # 🧠 Core system components
-│   ├── base_knowledge_system.py       # Knowledge management system (80+ methods)
-│   ├── base_capture_system.py         # Video capture system
-│   ├── screen_capture.py              # Screen capture backends
-│   ├── base_game_controller.py        # Main controller logic
-│   ├── logging_config.py              # Logging system
-│   └── message_bus.py                 # Inter-process communication
-├── games/pokemon_red/                 # 🎮 Pokemon Red implementation (extensible framework)
-│   ├── controller.py                  # Pokemon Red controller with knowledge integration
-│   ├── knowledge_system.py            # Game-specific knowledge management
-│   ├── prompt_template.py             # Pokemon Red prompts with enhanced formatting
-│   └── game_engine.py                 # Pokemon Red game logic
-├── emulator/                          # 🕹️ mGBA Lua scripts
-│   ├── script.lua                     # Main emulator script with enhanced state tracking
-│   ├── key_press_test.lua             # Button testing
-│   └── test_memory.lua                # Memory testing
-├── tests/                             # 🧪 Comprehensive test suite
-│   ├── test_conversation_tracking.py  # Conversation state tracking tests
-│   ├── test_dialogue_recording.py     # Dialogue memory system tests
-│   ├── test_context_prioritization.py # Smart context prioritization tests
-│   └── test_tutorial_progress.py      # Tutorial progress tracking tests
-├── data/                              # 📊 Data and storage
-│   ├── knowledge_graph.json           # Persistent knowledge storage
-│   ├── screenshots/                   # Game screenshots
-│   ├── videos/                        # AI video analysis
-│   └── prompt_template.txt            # Base AI prompt template
-├── requirements.txt                   # Python dependencies
-└── notepad.txt                        # Long-term AI memory file
+ai_gba_player/                     # Django web application (MAIN)
+├── manage.py                      # Django management
+├── ai_gba_player/                 # Django project settings
+│   ├── settings.py                # Django configuration
+│   ├── urls.py                    # URL routing
+│   └── simple_views.py            # Web views and API endpoints
+├── dashboard/                     # Main Django app
+│   ├── ai_game_service.py         # AI service (socket server + LLM)
+│   ├── llm_client.py              # LLM API client (Google/OpenAI/Anthropic)
+│   ├── models.py                  # Database models (Configuration, Process)
+│   └── templates/dashboard/       # HTML templates
+│       ├── base.html              # Base template
+│       └── dashboard.html         # Main interface (chat + config)
+├── db.sqlite3                     # SQLite database
+└── static/                        # CSS/JS assets
+
+emulator/
+└── script.lua                     # mGBA Lua script for game control
+
+data/
+├── screenshots/                   # Game screenshots
+└── knowledge_graph.json           # AI memory system (legacy)
+
+core/                              # Shared utilities
+├── base_knowledge_system.py       # Knowledge management
+├── base_game_controller.py        # Game controller base
+└── screen_capture.py              # Screenshot utilities
+
+games/pokemon_red/                 # Game-specific modules (extensible)
+├── controller.py                  # Pokemon Red controller
+├── knowledge_system.py            # Game-specific knowledge
+└── prompt_template.py             # Pokemon Red prompts
+
+test_ai_service.py                 # Test script for AI service
+config_emulator.json               # Configuration file (auto-updated)
 ```
 
 ## Configuration System
 
-### Main Config (`config_emulator.json`)
-- **Game Selection**: `"game": "pokemon_red"` (framework supports additional games)
-- **API Keys**: Google Gemini API key required (supports multiple LLM providers)
-- **Paths**: Screenshot, notepad, and prompt template paths
-- **Timing**: `decision_cooldown` controls rate limiting (3-6 seconds recommended)
-- **Debug**: `debug_mode` for verbose logging
-- **Unified Service**: `unified_service` configuration for threaded architecture
-- **Dashboard**: `dashboard` configuration for WebSocket and admin features
+### Database Configuration (Primary)
+All settings stored in SQLite database via Django models:
+- **Configuration model**: LLM provider, API keys, cooldown settings
+- **Process model**: Service status tracking
+- **Web interface**: Configure everything through browser at http://localhost:8000
 
-### Service Configuration
-```json
-{
-  "dashboard": {
-    "enabled": true,
-    "port": 3000,
-    "websocket_port": 3000,
-    "auto_start_processes": true,
-    "theme": "pokemon"
-  },
-  "unified_service": {
-    "enabled": true,
-    "thread_startup_delay": 2,
-    "thread_communication_timeout": 30
-  },
-  "dual_process_mode": {
-    "enabled": false
-  }
-}
-```
+### JSON Configuration (Legacy/Auto-updated)
+`config_emulator.json` - Automatically updated when saving AI settings through web interface
 
-### Dynamic Prompt System
-- **Template File**: `data/prompt_template.txt` 
-- **Hot Reload**: File changes automatically detected and reloaded
-- **Enhanced Variables**: `{critical_summary}`, `{character_context}`, `{conversation_context}`, `{conversation_flow_context}`, `{dialogue_memory_context}`, `{memory_context}`, `{tutorial_guidance}`, `{tutorial_progress}`, `{tutorial_preview}`
+### No Manual Configuration Required
+- ROM path: Set via web interface
+- mGBA path: Auto-detected or set via web interface  
+- API keys: Entered securely via web interface
+- All settings persist in SQLite database
 
-## Memory Management Architecture
+## AI Service Architecture
 
-## Dashboard Architecture
+### AIGameService (`dashboard/ai_game_service.py`)
+Single-threaded service that combines:
+- **Socket Server**: Listens on port 8888 for mGBA connections
+- **AI Decision Processing**: Sends screenshots to LLM and gets decisions
+- **Chat Message Storage**: Stores messages for real-time web interface
+- **Error Handling**: Graceful fallbacks when LLM calls fail
 
-### Real-time Monitoring
-- **WebSocket Streaming**: Live GIFs, AI responses, and button actions
-- **Process Status**: Real-time health monitoring of all AI processes
-- **Connection Management**: Automatic reconnection and error handling
+### LLMClient (`dashboard/llm_client.py`)
+Handles API calls to different LLM providers:
+- **Google Gemini**: Primary provider with function calling
+- **OpenAI**: GPT-4o with vision and tools
+- **Anthropic**: Claude models (future support)
+- **Error Recovery**: Timeout handling and fallback responses
 
-### Admin Panel Features
-- **Process Management**: Start, stop, restart individual processes
-- **Log Viewing**: Real-time and historical logs for debugging
-- **System Monitoring**: Process health, dependencies, and performance metrics
-- **Manual Controls**: Force restart, view detailed process information
-
-### Process Management
-- **Dependency-aware Startup**: video_capture → game_control → knowledge_system
-- **Graceful Failure Handling**: No crash loops, smart auto-restart logic
-- **Error Recovery**: Automatic port cleanup, process restart, WebSocket reconnection
-
-### Dual Memory System
-- **Short-term**: Rolling context buffer (20 entries) with smart prioritization
-- **Long-term**: Persistent dialogue history, character relationships, and tutorial progress
-- **Smart Context**: Dynamic relevance scoring ensures most important information reaches LLM
-
-### Knowledge Features
-- **Conversation Awareness**: Always knows who it's talking to and conversation history
-- **Character Identity**: Maintains consistent identity as "GEMINI" throughout gameplay
-- **Dialogue Intelligence**: Complete NPC interaction tracking with information extraction
-- **Tutorial Guidance**: Step-by-step progression through Pokemon Red's 12 tutorial steps
-- **Context Optimization**: Smart prioritization delivers most relevant information to LLM
-
-### Game State Tracking
-- Real-time memory reading: player coordinates, facing direction, map ID
-- Position tracking enables spatial reasoning and navigation
-- Map ID mapping to human-readable location names
-- Enhanced game state context with tutorial progress and conversation flow
+### Real-time Chat Interface
+- **Message Types**: System, screenshot, AI response
+- **Polling**: Frontend polls `/api/chat-messages/` every 2 seconds
+- **Message Storage**: In-memory buffer with 100 message limit
+- **Auto-scroll**: Automatic scrolling to latest messages
 
 ## Communication Architecture
 
-### Inter-Process Communication
-- **Video Capture ↔ Game Control**: TCP Socket (Port 8889) for GIF requests
-- **Game Control ↔ Emulator**: TCP Socket (Port 8888) for button commands
-- **All Processes ↔ Dashboard**: WebSocket (Port 3000) for real-time streaming
+### Socket Communication
+- **mGBA ↔ AI Service**: TCP Socket (Port 8888)
+- **Protocol**: Text-based messages (ready, screenshot_data, button commands)
+- **Connection Management**: Automatic reconnection handling
 
-### WebSocket Protocol
-- **Message Format**: JSON with standardized schema
-- **Message Types**:
-  - `chat_message`: Contains GIFs, AI responses, or actions
-  - `ping/pong`: Connection keepalive
-  - `process_status`: Process health updates
+### Web Interface Communication  
+- **Frontend ↔ Backend**: HTTP API endpoints
+- **Real-time Updates**: Polling-based (foundation for future WebSocket upgrade)
+- **Configuration**: POST endpoints for saving settings
+- **Status**: GET endpoints for service status and messages
 
-### Dual-Process GIF System
-- **Rolling Buffer**: 20-second window of screenshots at 30 FPS
-- **On-demand GIF Generation**: Optimized frame sampling and compression
-- **Real-time Streaming**: GIFs sent to dashboard via WebSocket
-
-### Multi-Button Support
-- Supports sequences like `["UP", "UP", "A"]` for complex actions
-- Button queue system in Lua executes commands sequentially
-- Each button held for 2 frames before releasing
+### Message Protocol
+```
+mGBA → AI Service: "ready"
+mGBA → AI Service: "screenshot_data|/path/to/screenshot.png|x|y|direction|mapId"
+AI Service → mGBA: "request_screenshot"
+AI Service → mGBA: "0,1,4" (button codes: A,B,RIGHT)
+```
 
 ## LLM Integration
 
 ### Tool-Based Architecture
-- **`press_button`**: Execute game controls (accepts button arrays)
-- **`update_notepad`**: Update long-term memory
+- **`press_button`**: Execute game controls with button arrays
+- **Function Calling**: Both Google Gemini and OpenAI support tool calling
+- **Error Recovery**: Fallback actions when LLM requests fail
 
-### Enhanced Context Processing Pipeline
-1. **Raw Context Collection**: Game state, conversation state, character identity
-2. **Smart Prioritization**: Dynamic relevance scoring based on current situation
-3. **Visual Formatting**: Structured presentation with priority indicators (🔥, 🗣️, 🧠, 📚)
-4. **Length Management**: Intelligent truncation preserving key information
-5. **LLM Delivery**: Optimally formatted context for decision-making
-
-### Response Processing
-- **Conversation Detection**: Automatic NPC interaction recognition
-- **Tutorial Progress**: Step completion detection from AI responses
-- **Character Tracking**: Identity consistency monitoring
-- **Flow Analysis**: Conversation phase detection and expected action extraction
-
-## Knowledge System Data Structures
-
-### Core State Tracking
-```python
-@dataclass
-class ConversationState:
-    current_npc: Optional[str] = None
-    npc_role: Optional[str] = None  
-    conversation_topic: Optional[str] = None
-    conversation_history: List[str] = field(default_factory=list)
-    expected_next_action: Optional[str] = None
-    conversation_phase: str = "none"
-
-@dataclass
-class CharacterState:
-    name: str = "GEMINI"
-    current_objective: Optional[str] = None
-    game_phase: str = "tutorial"
-    known_npcs: Dict[str, str] = field(default_factory=dict)
-    tutorial_progress: List[str] = field(default_factory=list)
-
-@dataclass
-class ContextMemoryEntry:
-    timestamp: float
-    context_type: str
-    content: str
-    priority: int = 5  # 1-10 scale
-    location_id: Optional[int] = None
-
-@dataclass
-class DialogueRecord:
-    npc_name: str
-    npc_role: str
-    dialogue_text: str
-    player_response: str
-    outcome: str
-    timestamp: float
-    location_id: int
-    important_info: List[str] = field(default_factory=list)
-```
+### Context Processing
+- **Screenshot Analysis**: LLM analyzes PNG images of game state
+- **Game State Context**: Position, direction, map ID provided to LLM
+- **Prompt Templates**: Game-specific prompts for better decision-making
+- **Response Parsing**: Extract button actions from LLM tool calls
 
 ## Common Development Patterns
 
-### Knowledge System Integration
+### Starting the System
 ```python
-# Update conversation state when AI talks to NPCs
-controller.knowledge_system.start_conversation(
-    npc_name="Mom", npc_role="mom", topic="setting clock", location_id=24
-)
+# 1. Start Django server
+cd ai_gba_player && python manage.py runserver
 
-# Record complete dialogue interactions
-controller.knowledge_system.record_dialogue(
-    npc_name="Mom", npc_role="mom", 
-    dialogue_text="Welcome home! Set the clock upstairs.",
-    player_response="I will go upstairs", 
-    outcome="Received clear instruction"
-)
+# 2. Start AI service via web interface
+curl -X POST http://localhost:8000/api/restart-service/
 
-# Add important context to memory
-controller.knowledge_system.add_context_memory(
-    "important", "First conversation with Mom about clock", priority=9
-)
+# 3. Check service status
+curl http://localhost:8000/api/chat-messages/
+```
 
-# Process tutorial progress
-controller.knowledge_system.process_tutorial_step_detection(
-    ai_response, action_taken, game_state
-)
+### Configuration Management
+```python
+# All configuration via Django models
+from dashboard.models import Configuration
+
+# Get current config
+config = Configuration.get_config()
+config_dict = config.to_dict()
+
+# Update config via web interface (saves to database)
+# POST to /api/save-ai-config/ with form data
+```
+
+### Adding New LLM Providers
+```python
+# In dashboard/llm_client.py
+def _call_new_provider_api(self, screenshot_path, context):
+    # Implement new provider
+    # Return standardized response format:
+    return {
+        "text": "AI reasoning",
+        "actions": ["UP", "A"],
+        "success": True,
+        "error": None
+    }
 ```
 
 ### Error Handling
-- Process crash recovery with dependency-aware restart logic
-- WebSocket disconnection recovery with automatic reconnection
-- Socket disconnection recovery with reconnection logic
-- Rate limiting protection with configurable cooldowns
-- Graceful degradation when API calls fail
-- Knowledge system persistence across restarts
+- **LLM API Failures**: Automatic fallback to basic exploration actions
+- **Socket Disconnections**: Graceful reconnection handling
+- **Configuration Errors**: Clear error messages in web interface
+- **Service Crashes**: No crash loops, clean restart capability
 
-### Testing Pattern
-```python
-def test_knowledge_feature():
-    controller = PokemonRedController(config)
-    
-    # Test feature functionality
-    result = controller.knowledge_system.feature_method()
-    assert result == expected_result
-    
-    # Test integration with other features
-    integration_result = test_with_other_features()
-    assert integration_result == True
-    
-    return True
+## Testing
+
+### AI Service Testing
+```bash
+# Test socket communication
+python test_ai_service.py
+
+# Test with real mGBA connection
+# 1. Start Django server: python manage.py runserver
+# 2. Start AI service via web interface
+# 3. Launch mGBA and load script
+# 4. Monitor chat interface for real-time activity
 ```
 
-## Performance Characteristics
+### Web Interface Testing
+```bash
+# Test Django app
+cd ai_gba_player
+python manage.py test
 
-### Memory Efficiency
-- Rolling buffers prevent unlimited memory growth
-- Smart prioritization ensures optimal context selection
-- Automatic context compression for older entries
-
-### Real-time Responsiveness
-- Request-based screenshot system prevents timing issues
-- Intelligent cooldowns balance performance with API limits
-- Context caching optimizes repeated operations
+# Test API endpoints
+curl -X POST http://localhost:8000/api/restart-service/
+curl http://localhost:8000/api/chat-messages/
+curl -X POST http://localhost:8000/api/stop-service/
+```
 
 ## Debugging
 
-### Knowledge System Monitoring
-```bash
-# Real-time knowledge base monitoring
-python monitor_knowledge.py --monitor
-
-# Current knowledge state inspection
-python monitor_knowledge.py --show
-
-# Detailed knowledge inspection
-python knowledge_inspector.py
-```
-
-### Debug Mode Features
-- Verbose logging of all knowledge operations
-- Socket communication tracing
-- LLM request/response logging with context details
-- Game state change notifications
-- Conversation flow analysis output
-- **Dashboard Logs**: Real-time log viewing in admin panel
-- **Process Monitoring**: Live process health and performance metrics
+### Service Monitoring
+- **Web Interface**: Real-time chat shows all AI activity
+- **Django Logs**: Console output shows service status
+- **API Endpoints**: Check service health via HTTP requests
 
 ### Common Issues
-- **Process crashes**: Use admin panel to view logs and restart processes
-- **"Port in use"**: Dashboard automatically handles port conflicts
-- **Missing cv2**: Install OpenCV with `pip install opencv-python`
-- **Knowledge persistence errors**: Check data directory permissions
-- **Context too long**: Smart prioritization automatically manages length
-- **Tutorial detection issues**: Check AI response format and game state
-- **WebSocket connection failures**: Check AsyncIO event loop threading
-- **Missing AI messages in dashboard**: Verify WebSocket connections in admin panel
+- **Port 8888 in use**: Only one AI service can run at a time
+- **mGBA not connecting**: Ensure mGBA is running and Lua script loaded
+- **API key errors**: Configure correct provider and key via web interface
+- **No screenshots**: Verify mGBA has ROM loaded and script is active
 
-### Dashboard Troubleshooting
-- **Admin Panel**: Access via ⚙️ Admin tab for process management
-- **Process Logs**: View real-time stderr/stdout for debugging
-- **Manual Controls**: Force restart processes that become unresponsive
-- **WebSocket Status**: Monitor connection health and message flow
+### Debug Features
+- **Chat Interface**: Shows all screenshots, AI responses, and actions
+- **Service Status**: Real-time connection and activity monitoring
+- **Error Messages**: Clear error reporting in chat interface
 
-## Documentation
+## Architecture Principles
 
-### Comprehensive Wiki
-- **[wiki/README.md](wiki/README.md)** - Documentation hub
-- **[wiki/features/completed/](wiki/features/completed/)** - All implemented features
-- **[wiki/features/future/](wiki/features/future/)** - Future enhancements
-- **[wiki/architecture/](wiki/architecture/)** - System architecture details
-- **[wiki/testing/](wiki/testing/)** - Testing guides and results
+The simplified system is designed with these principles:
+- **Single Process**: No complex multi-process coordination
+- **Web-based**: Everything manageable through browser interface
+- **Database-driven**: Configuration stored in SQLite, not files
+- **Socket Communication**: Direct TCP for reliable mGBA connection
+- **Real-time Monitoring**: Live chat interface for transparency
+- **Error Recovery**: Graceful handling of failures at all levels
+- **Extensible**: Easy to add new games and LLM providers
 
-### Key Documentation Files
-- **[wiki/features/completed/knowledge-system-features.md](wiki/features/completed/knowledge-system-features.md)** - Complete knowledge system documentation
-- **[wiki/architecture/system-overview.md](wiki/architecture/system-overview.md)** - Technical architecture
-- **[wiki/testing/testing-guide.md](wiki/testing/testing-guide.md)** - Testing procedures
+The system represents a **major simplification** from the original complex multi-process architecture while maintaining all core functionality and improving user experience significantly.
 
-## Architecture Considerations
-
-The system is designed as a **sophisticated AI gaming agent** with these key principles:
-- **Unified Threaded Architecture**: Integrated video capture and game control in single process for optimal performance
-- **Real-time Dashboard**: Unified monitoring with WebSocket streaming and admin controls
-- **Thread Management**: Coordinated startup, health monitoring, and error recovery
-- **Advanced Memory Management**: Comprehensive conversation and character state tracking
-- **Intelligent Context Delivery**: Smart prioritization ensures optimal LLM performance
-- **Modular Design**: Clear separation between emulator, threads, knowledge, and dashboard layers
-- **Extensible Architecture**: Knowledge system easily adaptable to other games
-- **Robust Error Recovery**: Graceful degradation, persistence, and admin controls throughout
-- **User-Friendly**: Simplified deployment with single Django process
-- **Comprehensive Testing**: Full test coverage for all knowledge features and system integration
-
-The system represents a **breakthrough in universal AI gaming**, combining sophisticated LLM capabilities with modern threaded architecture, real-time monitoring, and extensible game support - providing a complete framework for AI game-playing research across multiple titles and genres.
-
-**Credits**: This framework builds upon the excellent foundational work of [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red), extending it into a universal GBA gaming platform with enhanced monitoring, process management, and multi-game capabilities.
+**Quick Start**: `cd ai_gba_player && python manage.py runserver` → http://localhost:8000 🚀

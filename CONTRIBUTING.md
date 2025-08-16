@@ -1,15 +1,15 @@
-# Contributing to LLM mGBA - Universal AI Game Player
+# Contributing to AI GBA Player
 
-Thank you for your interest in contributing to this universal AI gaming framework! This project aims to enable LLMs to play any Game Boy Advance game through visual understanding and decision-making.
+Thank you for your interest in contributing to this universal AI gaming framework! This project enables LLMs to play any Game Boy Advance game through visual understanding and decision-making.
 
 ## 🎯 Project Vision
 
-While this framework started with Pokémon Red (based on [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red)), our goal is to create a universal system that can play any GBA game. The architecture is designed to be:
+While this framework started with Pokémon Red (based on [martoast/LLM-Pokemon-Red](https://github.com/martoast/LLM-Pokemon-Red)), our goal is to create a universal system that can play any GBA game. The simplified architecture is designed to be:
 
 - **Game-agnostic**: Core systems work with any GBA title
-- **Modular**: Game-specific logic is contained in separate modules
-- **Extensible**: Easy to add new games and AI behaviors
-- **Developer-friendly**: Comprehensive tools for debugging and monitoring
+- **Simple to use**: Single Django process with web interface
+- **Easy to extend**: Modular design for adding new games
+- **Developer-friendly**: Real-time chat interface for monitoring AI
 
 ## 🎮 Priority Contribution Areas
 
@@ -24,169 +24,223 @@ Help expand the framework to support additional GBA games:
 - 🥊 **Fighting**: Street Fighter Alpha series, Tekken Advance
 
 **What's Needed**:
+- Game-specific prompt templates optimized for each game
+- Memory address mappings for game state (optional)
 - Game-specific knowledge modules
-- Memory address mappings for game state
-- AI prompt templates optimized for each game
-- Game-specific image processing if needed
+- Testing with different game types
 
-### 2. LLM Provider Support
-Expand AI model compatibility:
-- OpenAI GPT-4 Vision integration
-- Anthropic Claude 3 Vision support
-- Local model integration (LLaVA, etc.)
-- Multi-model ensemble approaches
+### 2. LLM Provider Support (Medium Priority)
+Expand support for different AI providers:
 
-### 3. Framework Improvements
-Enhance the core system:
-- Performance optimizations
-- Better error handling and recovery
-- Enhanced debugging tools
-- Cross-platform compatibility improvements
+**Current Support**:
+- ✅ Google Gemini (primary)
+- ✅ OpenAI GPT-4o
+- 🔄 Anthropic Claude (basic support)
+
+**Needed**:
+- Local model support (Ollama, LM Studio)
+- Azure OpenAI integration
+- Enhanced Anthropic Claude support
+- Model performance benchmarking
+
+### 3. Web Interface Enhancements (Medium Priority)
+Improve the Django web interface:
+
+**Current Features**:
+- Real-time chat monitoring
+- Configuration management
+- mGBA launcher integration
+
+**Enhancement Ideas**:
+- WebSocket support for true real-time updates
+- Game state visualization
+- AI decision replay system
+- Performance metrics dashboard
+- Multi-game session management
+
+### 4. AI Performance Improvements (Medium Priority)
+Enhance AI decision-making capabilities:
+
+**Areas for Improvement**:
+- Better prompt engineering for different game genres
+- Enhanced error recovery strategies
+- Adaptive decision timing based on game state
+- Memory system for long-term game progress
+- Multi-modal input processing (audio + visual)
 
 ## 🛠️ Technical Architecture
 
-### Adding a New Game
-
-1. **Create Game Module**:
-   ```
-   games/your_game/
-   ├── controller.py      # Game-specific controller
-   ├── knowledge_system.py # Game knowledge and memory
-   ├── game_engine.py     # Game state management
-   └── prompt_template.py # AI prompts for this game
-   ```
-
-2. **Memory Mapping**:
-   - Identify key memory addresses for game state
-   - Map player position, health, inventory, etc.
-   - Document memory layout in game engine
-
-3. **AI Prompts**:
-   - Create game-specific prompt templates
-   - Define game objectives and strategies
-   - Include game controls and mechanics
-
-4. **Configuration**:
-   - Add game config to `config_your_game.json`
-   - Update main config to support new game selection
-
-### Code Style Guidelines
-
-- **Python**: Follow PEP 8, use type hints
-- **Documentation**: Comprehensive docstrings for all public methods
-- **Testing**: Add tests for new functionality
-- **Logging**: Use the existing logging system for consistency
-
-### File Structure
+### Simplified System Overview
 ```
-LLM_mGBA/
-├── games/
-│   ├── pokemon_red/     # Existing Pokémon implementation
-│   ├── your_game/       # Your new game module
-│   └── base/            # Shared game interfaces
-├── core/                # Universal core systems
-├── dashboard/           # Web dashboard (works with all games)
-└── emulator/            # mGBA Lua scripts (universal)
+mGBA Emulator ↔ Lua Script ↔ Socket (Port 8888) ↔ AIGameService ↔ LLM API
+                                                         ↓
+                                              Django Web Interface
+                                           (Real-time Chat Monitoring)
 ```
 
-## 🧪 Testing Your Contribution
+### Key Components
+- **`ai_gba_player/dashboard/ai_game_service.py`**: Main AI service with socket server
+- **`ai_gba_player/dashboard/llm_client.py`**: LLM API client for multiple providers
+- **`ai_gba_player/ai_gba_player/simple_views.py`**: Web interface and API endpoints
+- **`emulator/script.lua`**: mGBA Lua script for game control
+- **`games/pokemon_red/`**: Game-specific modules (template for new games)
 
-1. **Unit Tests**: Add tests for new modules
-   ```bash
-   python -m pytest tests/test_your_game.py
-   ```
+## 🚀 Getting Started
 
-2. **Integration Test**: Test with actual game
-   ```bash
-   python test_complete_system.py --game your_game
-   ```
+### Development Setup
+```bash
+# 1. Clone and setup
+git clone <repository-url>
+cd LLM-Pokemon-Red
+pip install -r requirements.txt
 
-3. **Dashboard Test**: Verify dashboard integration
-   ```bash
-   python dashboard.py --config config_your_game.json
-   ```
+# 2. Setup database
+cd ai_gba_player
+python manage.py migrate
 
-## 📝 Submission Guidelines
-
-### Pull Request Process
-
-1. **Fork and Branch**:
-   ```bash
-   git checkout -b feature/add-metroid-support
-   ```
-
-2. **Follow Naming Conventions**:
-   - `feature/game-name-support` for new games
-   - `enhancement/description` for improvements
-   - `fix/issue-description` for bug fixes
-
-3. **Include Documentation**:
-   - Update README.md if needed
-   - Add game-specific setup instructions
-   - Document any new configuration options
-
-4. **Test Thoroughly**:
-   - Test your game module extensively
-   - Verify dashboard integration works
-   - Check that existing functionality isn't broken
-
-### Commit Message Format
-```
-Add [Game Name] support with core functionality
-
-- Implement game state tracking for [specific features]
-- Add AI prompts optimized for [game mechanics]
-- Include memory mapping for [key game variables]
-- Test with [specific scenarios]
-
-Addresses #[issue-number]
+# 3. Start development server
+python manage.py runserver
 ```
 
-## 🎯 Game-Specific Contribution Guides
+### Testing Your Changes
+```bash
+# Test AI service
+python test_ai_service.py
 
-### For RPG Games (Fire Emblem, Final Fantasy)
-- Focus on battle system understanding
-- Implement character stat tracking
-- Add inventory and equipment management
-- Create strategic decision-making prompts
+# Test Django app
+cd ai_gba_player
+python manage.py test
 
-### For Action Games (Metroid, Zelda)
-- Implement map exploration logic
-- Add item and ability progression tracking
-- Create navigation and puzzle-solving prompts
-- Handle real-time combat scenarios
+# Manual integration test
+# 1. Start Django server
+# 2. Configure via web interface
+# 3. Launch mGBA and load script
+# 4. Monitor real-time chat interface
+```
 
-### For Platformers (Mario, Sonic)
-- Focus on precise movement controls
-- Implement level progression tracking
-- Add physics-aware decision making
-- Handle timing-critical gameplay
+## 📝 Contribution Guidelines
 
-## 🤝 Community Guidelines
+### Code Style
+- Follow Python PEP 8 style guidelines
+- Use type hints where appropriate
+- Include docstrings for public methods
+- Keep functions focused and small
 
-- **Be Respectful**: Welcoming environment for all contributors
-- **Collaborate**: Work together on large features
-- **Document**: Help others understand your contributions
-- **Test**: Ensure quality and reliability
-- **Have Fun**: This is a project about AI playing games!
+### Adding New Games
+1. **Create game directory**: `games/your_game/`
+2. **Implement controller**: Extend base game controller
+3. **Create prompts**: Game-specific prompt templates
+4. **Add knowledge system**: Game state understanding
+5. **Test thoroughly**: Verify AI can play effectively
+
+Example structure:
+```
+games/your_game/
+├── __init__.py
+├── controller.py       # Game-specific controller
+├── knowledge_system.py # Game state management
+└── prompt_template.py  # AI prompts for this game
+```
+
+### Adding LLM Providers
+1. **Extend LLMClient**: Add new provider method in `dashboard/llm_client.py`
+2. **Implement API calls**: Follow existing patterns for error handling
+3. **Update configuration**: Add provider options to web interface
+4. **Test integration**: Verify tool calling and response parsing
+
+### UI Improvements
+1. **Enhance templates**: Update HTML templates in `dashboard/templates/`
+2. **Add CSS/JS**: Extend styling in `dashboard/static/`
+3. **Create API endpoints**: Add new endpoints in `simple_views.py`
+4. **Test responsiveness**: Ensure mobile compatibility
+
+## 🧪 Testing
+
+### Unit Tests
+```bash
+cd ai_gba_player
+python manage.py test
+```
+
+### Integration Tests
+```bash
+# Test AI service communication
+python test_ai_service.py
+
+# Test with real mGBA connection
+# Start Django server, configure settings, launch mGBA, load script
+```
+
+### Game-Specific Testing
+When adding new games:
+1. Test AI can understand game state
+2. Verify appropriate actions are taken
+3. Check error recovery works
+4. Ensure long-term progress is possible
+
+## 📚 Documentation
+
+### Code Documentation
+- Document all public methods and classes
+- Include examples for complex functionality
+- Update CLAUDE.md for architectural changes
+- Keep README.md current with new features
+
+### User Documentation
+- Update SETUP.md for new installation steps
+- Add troubleshooting for new features
+- Create guides for new game integration
+- Document configuration options
+
+## 🤝 Pull Request Process
+
+1. **Fork the repository** and create a feature branch
+2. **Make your changes** following the contribution guidelines
+3. **Test thoroughly** including both unit and integration tests
+4. **Update documentation** for any new features or changes
+5. **Submit pull request** with clear description of changes
+
+### PR Checklist
+- [ ] Code follows project style guidelines
+- [ ] All tests pass
+- [ ] Documentation is updated
+- [ ] Changes are tested with real mGBA connection
+- [ ] Commit messages are clear and descriptive
+
+## 🐛 Bug Reports
+
+When reporting bugs:
+1. **Use GitHub Issues** with clear titles
+2. **Include system information**: OS, Python version, mGBA version
+3. **Provide reproduction steps**: Exact steps to reproduce the issue
+4. **Include logs**: Django console output and error messages
+5. **Screenshots**: If UI-related, include screenshots
+
+## 💡 Feature Requests
+
+For new features:
+1. **Check existing issues** to avoid duplicates
+2. **Describe the use case**: Why is this feature needed?
+3. **Propose implementation**: How should it work?
+4. **Consider alternatives**: What other approaches were considered?
 
 ## 📞 Getting Help
 
-- **Issues**: Use GitHub Issues for bugs and feature requests
-- **Discussions**: Use GitHub Discussions for questions and ideas
-- **Discord**: [Link to Discord server if available]
+- **GitHub Issues**: For bugs and feature requests
+- **Code Review**: Submit PRs for feedback on approaches
+- **Architecture Questions**: Discuss major changes in issues first
 
 ## 🏆 Recognition
 
 Contributors will be recognized in:
-- README.md contributor section
+- Repository contributors list
 - Release notes for significant contributions
-- Special recognition for major game additions
+- Special mention for new game integrations
 
 ## 📄 License
 
-By contributing, you agree that your contributions will be licensed under the same MIT License as the project.
+By contributing, you agree that your contributions will be licensed under the same license as the project.
 
 ---
 
-**Ready to help build the ultimate AI gaming framework? Pick a game and let's make it happen!** 🎮🤖
+**Ready to contribute?** Start with the [SETUP.md](SETUP.md) guide to get your development environment ready!

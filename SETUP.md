@@ -1,450 +1,241 @@
-# Setup Guide - AI Pokemon Trainer
+# Setup Guide - AI GBA Player
 
-Complete setup guide for the AI Pokemon Red benchmark system with unified dashboard.
+Complete setup guide for the AI GBA Player universal gaming framework.
 
-## Quick Start (Recommended)
+## 🚀 Quick Start
 
 ### 1. Install Dependencies
 ```bash
-pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python
+pip install -r requirements.txt
 ```
 
-### 2. Configure API Key
-Edit `config_emulator.json` and add your Gemini API key:
-```json
-{
-  "providers": {
-    "google": {
-      "api_key": "YOUR_GEMINI_API_KEY_HERE",
-      "model_name": "gemini-2.5-pro",
-      "max_tokens": 1024
-    }
-  }
-}
-```
-
-### 3. Setup Game Emulator
-1. Download and install [mGBA emulator](https://mgba.io/downloads.html)
-2. Obtain Pokemon Red ROM (not provided)
-3. Start mGBA and load Pokemon Red ROM
-
-### 4. Start the System
+### 2. Setup Database
 ```bash
-# One command to start everything!
-python dashboard.py --config config_emulator.json
+cd ai_gba_player
+python manage.py migrate
 ```
 
-### 5. Update Lua Script Path
-Edit `emulator/script.lua` and update the project root path:
-```lua
-local projectRoot = "/path/to/your/LLM_mGBA"  -- Change this to your project path
+### 3. Start the Web Interface
+```bash
+python manage.py runserver
 ```
 
-### 6. Load Lua Script
-In mGBA:
-1. Go to Tools > Script Viewer
-2. Click "Load" and select `emulator/script.lua`
-3. The AI will now control the game automatically
+Open your browser to: **http://localhost:8000**
 
-### 7. Monitor with Dashboard
-Open your browser to http://localhost:5173 to see:
-- Real-time AI decisions and responses
-- Live video feed from the game
-- Process management controls
-- System logs and health monitoring
+### 4. Configure Through Web Interface
+1. **ROM Configuration**: Set path to your GBA ROM file
+2. **mGBA Configuration**: Set path to mGBA executable (auto-detected on macOS)
+3. **AI Settings**: Choose LLM provider and enter API key
+4. **Save Settings**: Click "Save Config" for each section
 
-## Detailed Setup
+### 5. Launch and Connect
+1. Click **"Launch mGBA"** (or start mGBA manually)
+2. Click **"Reset mGBA Connection"** to start AI service
+3. In mGBA: **Tools > Script Viewer > Load** `emulator/script.lua`
+4. Watch the AI play in the real-time chat interface!
 
-### Prerequisites
+## 📋 Detailed Setup
 
-#### System Requirements
-- **Python 3.8+** (recommended: Python 3.10+)
-- **mGBA Emulator** (latest version)
-- **Pokemon Red ROM** (Game Boy)
-- **Internet connection** (for LLM API calls)
-
-#### API Requirements
-- **Google Gemini API key** (required)
-  - Sign up at [Google AI Studio](https://makersuite.google.com/)
-  - Generate API key for Gemini Pro
-  - Free tier available with rate limits
-
-#### Operating System
-- **Windows**: Supported with some screen capture limitations
-- **macOS**: Fully supported (recommended)
-- **Linux**: Fully supported
+### System Requirements
+- **Python 3.11+**
+- **mGBA emulator** (latest version recommended)
+- **GBA ROM file** (legally obtained)
+- **LLM API key** (Google Gemini, OpenAI, or Anthropic)
 
 ### Installation Steps
 
 #### 1. Clone Repository
 ```bash
-git clone https://github.com/hhxsb/LLM_mGBA.git
-cd LLM_mGBA
+git clone <repository-url>
+cd LLM-Pokemon-Red
 ```
 
-#### 2. Python Dependencies
+#### 2. Install Python Dependencies
 ```bash
-# Install required packages
 pip install -r requirements.txt
-
-# Or install manually:
-pip install "google-generativeai>=0.3.0" pillow openai anthropic python-dotenv opencv-python
 ```
 
-#### 3. Configuration File
-Create/edit `config_emulator.json`:
+#### 3. Install mGBA
+**macOS (Homebrew):**
+```bash
+brew install mgba
+```
+
+**macOS (Manual):**
+Download from [mgba.io](https://mgba.io/downloads.html) and install to `/Applications/mGBA.app`
+
+**Linux:**
+```bash
+sudo apt-get install mgba-qt  # Ubuntu/Debian
+sudo dnf install mgba         # Fedora
+```
+
+#### 4. Prepare ROM File
+- Obtain a legal GBA ROM file (e.g., Pokémon Ruby, Sapphire, Emerald)
+- Place it in an accessible location
+- Note the full file path for configuration
+
+### Configuration
+
+#### Web Interface Configuration (Recommended)
+1. Start the web interface: `cd ai_gba_player && python manage.py runserver`
+2. Open http://localhost:8000 in your browser
+3. Configure all settings through the web interface:
+
+**ROM Configuration:**
+- ROM File Path: `/path/to/your/pokemon.gba`
+- Display Name: Pokemon Ruby (optional)
+
+**mGBA Configuration:**
+- mGBA Executable: Auto-detected or set manually
+- Common paths:
+  - macOS: `/Applications/mGBA.app/Contents/MacOS/mGBA`
+  - Linux: `/usr/bin/mgba-qt`
+
+**AI Settings:**
+- LLM Provider: Google Gemini (recommended)
+- API Key: Your provider's API key
+- Decision Cooldown: 3-6 seconds (recommended)
+
+#### Manual Configuration (Optional)
+If needed, you can also edit `config_emulator.json`:
 ```json
 {
-  "game": "pokemon_red",
   "llm_provider": "google",
+  "decision_cooldown": 3,
   "providers": {
     "google": {
-      "api_key": "YOUR_GEMINI_API_KEY",
-      "model_name": "gemini-2.5-pro",
-      "max_tokens": 1024
-    }
-  },
-  "host": "127.0.0.1",
-  "port": 8888,
-  "decision_cooldown": 5,
-  "debug_mode": true,
-  "dual_process_mode": {
-    "enabled": true,
-    "video_capture_port": 8889,
-    "rolling_window_seconds": 20,
-    "process_communication_timeout": 25
-  },
-  "dashboard": {
-    "enabled": true,
-    "port": 3000,
-    "auto_start_processes": true,
-    "theme": "pokemon"
-  },
-  "capture_system": {
-    "type": "screen",
-    "capture_fps": 30,
-    "gif_optimization": {
-      "max_gif_frames": 150,
-      "gif_width": 320,
-      "target_gif_duration": 5.0
+      "api_key": "YOUR_API_KEY_HERE",
+      "model_name": "gemini-2.0-flash-exp"
     }
   }
 }
 ```
 
-#### 4. mGBA Emulator Setup
-1. **Download mGBA**: Get latest version from [mgba.io](https://mgba.io/downloads.html)
-2. **Install mGBA**: Follow platform-specific installation instructions
-3. **Configure mGBA**:
-   - Enable Tools > Script Viewer
-   - Set window size to reasonable resolution (recommended: 3x scale)
-   - Configure input controls (keyboard recommended)
+### LLM API Setup
 
-#### 5. Pokemon Red ROM
-- Obtain Pokemon Red ROM file (`.gb` format)
-- Place in accessible location
-- Load in mGBA: File > Load ROM
+#### Google Gemini (Recommended)
+1. Visit [AI Studio](https://aistudio.google.com/app/apikey)
+2. Create a new API key
+3. Enter the key in the web interface under "AI Settings"
 
-### Startup Methods
+#### OpenAI
+1. Visit [OpenAI API Keys](https://platform.openai.com/api-keys)
+2. Create a new API key
+3. Choose OpenAI as provider and enter the key
 
-#### Method 1: Easy Startup (Recommended)
+#### Anthropic
+1. Visit [Anthropic Console](https://console.anthropic.com/)
+2. Generate an API key
+3. Choose Anthropic as provider and enter the key
+
+### Testing the Setup
+
+#### 1. Test Web Interface
 ```bash
-# Start everything with unified dashboard
-python dashboard.py --config config_emulator.json
-```
-
-This will:
-- Start dashboard backend (port 3000)
-- Launch React frontend (port 5173)
-- Start video capture process
-- Start game control process
-- Start knowledge system process
-- Display all URLs for access
-
-#### Method 2: Django-based Startup (Recommended)
-```bash
-# Terminal 1: Start Django server
 cd ai_gba_player
 python manage.py runserver
-
-# Terminal 2: Start unified service
-python manage.py start_process unified_service --config config_emulator.json
 ```
+Visit http://localhost:8000 and verify the interface loads
 
-#### Method 3: Direct Service Testing (Development)
+#### 2. Test AI Service
 ```bash
-# Test unified service directly
-python -m ai_gba_player.core.unified_game_service --config config_emulator.json
+# In one terminal: start Django server
+cd ai_gba_player && python manage.py runserver
 
-# Test system integration
-python test_unified_service.py
+# In another terminal: test AI service
+python test_ai_service.py
 ```
 
-### Startup Sequence
+#### 3. Test Full Integration
+1. Start web interface
+2. Configure all settings
+3. Click "Launch mGBA"
+4. Load a ROM in mGBA
+5. Click "Reset mGBA Connection"
+6. Load `emulator/script.lua` in mGBA Script Viewer
+7. Watch real-time AI gameplay in chat interface
 
-#### Critical Order
-1. **Start mGBA** and load Pokemon Red ROM
-2. **Start AI processes** (dashboard handles this automatically)
-3. **Load Lua script** in mGBA: Tools > Script Viewer > Load `emulator/script.lua`
-4. **Access dashboard** at http://localhost:5173
+## 🛠️ Troubleshooting
 
-#### Verification Steps
-1. **Check process status** in admin panel (⚙️ Admin tab)
-2. **Verify connections**:
-   - All processes show ✅ Running status
-   - WebSocket connected (visible in dashboard)
-   - Game control connected to emulator
-3. **Test AI control**:
-   - Move character in game manually
-   - Load Lua script
-   - AI should take control within 5-10 seconds
+### Common Issues
 
-## Configuration Options
+#### mGBA Won't Launch
+- **Issue**: "mGBA executable not found"
+- **Solution**: Set correct path in mGBA Configuration, or install mGBA
 
-### Essential Settings
+#### AI Service Connection Failed
+- **Issue**: "Connection refused on port 8888"
+- **Solution**: 
+  1. Ensure AI service is started via "Reset mGBA Connection"
+  2. Check no other process is using port 8888
+  3. Restart the AI service
 
-#### API Configuration
-```json
-{
-  "providers": {
-    "google": {
-      "api_key": "your-api-key-here",
-      "model_name": "gemini-2.5-pro",
-      "max_tokens": 1024
-    }
-  }
-}
-```
+#### No Screenshots in Chat
+- **Issue**: No images appearing in chat interface
+- **Solution**:
+  1. Ensure ROM is loaded in mGBA
+  2. Verify Lua script is loaded and running
+  3. Check mGBA console for script errors
 
-#### Performance Settings
-```json
-{
-  "decision_cooldown": 5,          // Seconds between AI decisions
-  "capture_fps": 30,               // Video capture frame rate
-  "rolling_window_seconds": 20,    // Video buffer duration
-  "debug_mode": true               // Verbose logging
-}
-```
+#### LLM API Errors
+- **Issue**: "AI API failed" or fallback mode
+- **Solution**:
+  1. Verify API key is correct
+  2. Check internet connection
+  3. Ensure API quota is not exceeded
+  4. Try a different LLM provider
 
-#### Dashboard Settings
-```json
-{
-  "dashboard": {
-    "enabled": true,
-    "port": 3000,
-    "auto_start_processes": true,
-    "chat_history_limit": 100,
-    "gif_retention_minutes": 30,
-    "theme": "pokemon"
-  }
-}
-```
-
-### Advanced Configuration
-
-#### Video Capture Optimization
-```json
-{
-  "capture_system": {
-    "capture_fps": 30,
-    "gif_optimization": {
-      "max_gif_frames": 150,
-      "gif_width": 320,
-      "target_gif_duration": 5.0,
-      "max_gif_duration": 10.0
-    },
-    "frame_enhancement": {
-      "scale_factor": 3,
-      "contrast": 1.5,
-      "saturation": 1.8,
-      "brightness": 1.1
-    }
-  }
-}
-```
-
-#### Process Communication
-```json
-{
-  "dual_process_mode": {
-    "enabled": true,
-    "video_capture_port": 8889,
-    "rolling_window_seconds": 20,
-    "process_communication_timeout": 25
-  }
-}
-```
-
-## Troubleshooting
-
-### Common Setup Issues
-
-#### 1. Missing Dependencies
-**Error**: `ModuleNotFoundError: No module named 'cv2'`
-**Solution**: 
-```bash
-pip install opencv-python
-```
-
-#### 2. Port Already in Use
-**Error**: `[Errno 48] error while attempting to bind on address ('127.0.0.1', 3000): address already in use`
-**Solution**: 
-```bash
-# Quick fix - run the cleanup script
-./kill_dashboard.sh
-
-# Or manually check what's using the port
-lsof -i :3000
-
-# Kill the process using the port (replace PID with actual process ID)
-kill PID_NUMBER
-```
-
-#### 3. API Key Issues
-**Error**: API authentication failures
-**Solution**:
-- Verify API key is correct in `config_emulator.json`
-- Check Gemini API quota and billing
-- Test API key with simple request
-
-#### 4. Port Conflicts
-**Error**: `Address already in use`
-**Solution**:
-- Dashboard automatically handles port conflicts
-- Manually kill processes on ports 3000, 5173, 8888, 8889
-- Use different ports in configuration
-
-#### 5. mGBA Connection
-**Error**: `Cannot connect to emulator`
-**Solution**:
-- Ensure mGBA is running with Pokemon Red loaded
-- Load Lua script AFTER starting AI processes
-- Check firewall isn't blocking local connections
-
-#### 5. Process Crashes
-**Error**: Processes repeatedly crash
-**Solution**:
-- Check admin panel logs for detailed errors
-- Verify all dependencies installed
-- Use force restart in admin panel
-- Check system resources (CPU, memory)
-
-### Performance Issues
-
-#### Slow AI Decisions
-- Increase `decision_cooldown` to reduce API pressure
-- Check internet connection speed
-- Verify Gemini API isn't rate limited
-- Monitor CPU usage during decision making
-
-#### Video Capture Problems
-- Reduce `capture_fps` if system is overloaded
-- Adjust `gif_optimization` settings for smaller files
-- Check screen capture permissions on macOS
-- Verify mGBA window is visible and focused
-
-#### Dashboard Not Loading
-- Clear browser cache
-- Try incognito/private mode
-- Check browser console for errors
-- Verify ports 3000 and 5173 are accessible
+#### Port Conflicts
+- **Issue**: "Port already in use"
+- **Solution**:
+  1. Stop other Django servers: `pkill -f runserver`
+  2. Kill processes on port 8888: `lsof -ti:8888 | xargs kill`
+  3. Restart the services
 
 ### Debug Mode
+Enable verbose logging by checking Django console output when running `python manage.py runserver`
 
-Enable detailed logging:
-```json
-{
-  "debug_mode": true
-}
-```
-
-This provides:
-- Verbose process communication logs
-- AI decision reasoning details
-- WebSocket message tracing
-- Performance timing information
-
-### Getting Help
-
-#### Log Analysis
-1. **Enable debug mode** in configuration
-2. **Use admin panel** to view real-time logs
-3. **Check process status** in admin panel
-4. **Export logs** for analysis
-
-#### System Information
-Useful information for troubleshooting:
-- Operating system and version
-- Python version (`python --version`)
-- mGBA version
-- Configuration file contents (remove API key)
-- Error messages from logs
-
-#### Test Scripts
-Run diagnostic tests:
+### Configuration Verification
+Check your configuration is working:
 ```bash
-# Test complete system
-python test_complete_system.py
-
-# Test WebSocket integration
-python test_dashboard_websocket.py
-
-# Test video capture
-python test_video_capture_standalone.py
+# Test API endpoints
+curl http://localhost:8000/api/chat-messages/
+curl -X POST http://localhost:8000/api/restart-service/
 ```
 
-## Advanced Setup
+## 🎯 Advanced Configuration
 
-### Development Environment
+### Custom Game Support
+To add support for new GBA games:
+1. Create game-specific controller in `games/your_game/`
+2. Implement game-specific prompts and knowledge
+3. Update configuration to recognize new game
 
-#### Frontend Development
-```bash
-cd dashboard/frontend
-npm install
-npm run dev  # Start development server
-```
+### Performance Tuning
+- **Decision Cooldown**: Increase for slower, more thoughtful decisions
+- **Model Selection**: Use faster models (gemini-2.0-flash-exp) for real-time play
+- **Screenshot Quality**: Adjust in mGBA settings for clearer AI vision
 
-#### Backend Development
-```bash
-# Run dashboard backend only
-python dashboard/backend/main.py
-```
+### Multiple ROM Support
+- Configure different ROM paths for different games
+- Use web interface to switch between games easily
+- Each game maintains separate AI context
 
-#### Custom Configuration
-Create environment-specific configs:
-```bash
-cp config_emulator.json config_development.json
-# Edit config_development.json for development settings
-python dashboard.py --config config_development.json
-```
+## 📚 Next Steps
 
-### Production Deployment
+After successful setup:
+1. **Monitor AI Gameplay**: Watch real-time chat interface
+2. **Experiment with Settings**: Try different cooldowns and models
+3. **Add New Games**: Extend support to other GBA titles
+4. **Customize Prompts**: Modify AI behavior for specific games
 
-#### Docker Setup (Optional)
-```bash
-# Build Docker image
-docker build -t pokemon-ai .
+## 🤝 Support
 
-# Run with Docker
-docker run -p 3000:3000 -p 5173:5173 -p 8888:8888 -p 8889:8889 pokemon-ai
-```
+If you encounter issues:
+1. Check the troubleshooting section above
+2. Review Django console logs for detailed errors
+3. Test individual components (web interface, AI service, mGBA)
+4. Ensure all dependencies are correctly installed
 
-#### System Service (Linux)
-Create systemd service for automatic startup:
-```ini
-[Unit]
-Description=Pokemon AI Dashboard
-After=network.target
-
-[Service]
-Type=simple
-User=pokemon
-WorkingDirectory=/opt/pokemon-ai
-ExecStart=/usr/bin/python dashboard.py --config config_emulator.json
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-This setup guide should get you running with the AI Pokemon system quickly and help troubleshoot any issues that arise during setup.
+**Quick Start Reminder**: `cd ai_gba_player && python manage.py runserver` → http://localhost:8000 🚀
