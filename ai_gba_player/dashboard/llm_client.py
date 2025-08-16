@@ -198,8 +198,14 @@ IMPORTANT: After each significant change (entering new area, talking to someone,
             # Enhanced prompt with tool definition
             prompt = context + """
 
-Use the press_button tool to indicate your chosen action. Choose ONE button at a time.
-For example, to move up: press_button(["UP"])
+Use the press_button_sequence tool to indicate your chosen actions. You can press multiple buttons in sequence with custom durations.
+
+Examples:
+- Single button: press_button_sequence(actions=["UP"])
+- Multiple buttons: press_button_sequence(actions=["UP", "UP", "A"])
+- With durations: press_button_sequence(actions=["UP", "A"], durations=[10, 5])
+
+Duration is in frames (60 frames = 1 second). Default duration is 2 frames if not specified.
 """
 
             # Define tools (including both press_button and update_notepad)
@@ -207,18 +213,28 @@ For example, to move up: press_button(["UP"])
                 self.google_client.protos.Tool(
                     function_declarations=[
                         self.google_client.protos.FunctionDeclaration(
-                            name="press_button",
-                            description="Press a button on the Game Boy emulator to control the game",
+                            name="press_button_sequence",
+                            description="Press a sequence of buttons on the Game Boy emulator with optional custom durations",
                             parameters=self.google_client.protos.Schema(
                                 type=self.google_client.protos.Type.OBJECT,
                                 properties={
-                                    "button": self.google_client.protos.Schema(
-                                        type=self.google_client.protos.Type.STRING,
-                                        enum=["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"],
-                                        description="Button to press (A, B, START, SELECT, UP, DOWN, LEFT, RIGHT, R, L)"
+                                    "actions": self.google_client.protos.Schema(
+                                        type=self.google_client.protos.Type.ARRAY,
+                                        items=self.google_client.protos.Schema(
+                                            type=self.google_client.protos.Type.STRING,
+                                            enum=["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
+                                        ),
+                                        description="Array of buttons to press in sequence"
+                                    ),
+                                    "durations": self.google_client.protos.Schema(
+                                        type=self.google_client.protos.Type.ARRAY,
+                                        items=self.google_client.protos.Schema(
+                                            type=self.google_client.protos.Type.INTEGER
+                                        ),
+                                        description="Optional array of durations (in frames, 60fps) for each button. Default is 2 frames if not specified."
                                     )
                                 },
-                                required=["button"]
+                                required=["actions"]
                             )
                         ),
                         self.google_client.protos.FunctionDeclaration(
@@ -249,7 +265,9 @@ For example, to move up: press_button(["UP"])
             # Parse response
             response_text = ""
             actions = ["A"]  # Default action
+            durations = []  # Default durations
             notepad_update = None
+            tool_call_found = False
             
             if response.candidates:
                 candidate = response.candidates[0]
@@ -257,29 +275,141 @@ For example, to move up: press_button(["UP"])
                 # Get text content and tool calls
                 if hasattr(candidate.content, 'parts'):
                     for part in candidate.content.parts:
-                        if hasattr(part, 'text'):
+                        if hasattr(part, 'text') and part.text:
                             response_text += part.text
-                        elif hasattr(part, 'function_call'):
+                        if hasattr(part, 'function_call') and part.function_call:
+                            tool_call_found = True
                             # Extract function calls
-                            if part.function_call.name == "press_button":
-                                if 'button' in part.function_call.args:
-                                    button = str(part.function_call.args['button'])
+                            if part.function_call.name == "press_button_sequence":
+                                # Extract actions from Google's nested structure
+                                args_to_check = part.function_call.args
+                                
+                                # Handle both 'fields' and direct access patterns
+                                if hasattr(args_to_check, 'fields') and 'actions' in args_to_check.fields:
+                                    actions_field = args_to_check.fields['actions']
+                                elif 'actions' in args_to_check:
+                                    actions_field = args_to_check['actions']
+                                else:
+                                    actions_field = None
+                                
+                                if actions_field:
+                                    # Handle Google's list_value structure
+                                    if hasattr(actions_field, 'list_value') and hasattr(actions_field.list_value, 'values'):
+                                        actions = [val.string_value for val in actions_field.list_value.values if hasattr(val, 'string_value')]
+                                    # Handle direct value access
+                                    elif hasattr(actions_field, 'value') and hasattr(actions_field.value, 'list_value'):
+                                        actions = [val.string_value for val in actions_field.value.list_value.values if hasattr(val, 'string_value')]
+                                    else:
+                                        # Fallback: try direct conversion
+                                        try:
+                                            actions = list(actions_field)
+                                        except:
+                                            actions = ["A"]  # Fallback
+                                    
+                                    # Extract durations if provided
+                                    durations_field = None
+                                    if hasattr(args_to_check, 'fields') and 'durations' in args_to_check.fields:
+                                        durations_field = args_to_check.fields['durations']
+                                    elif 'durations' in args_to_check:
+                                        durations_field = args_to_check['durations']
+                                    
+                                    if durations_field:
+                                        if hasattr(durations_field, 'list_value') and hasattr(durations_field.list_value, 'values'):
+                                            durations = []
+                                            for val in durations_field.list_value.values:
+                                                if hasattr(val, 'number_value'):
+                                                    durations.append(int(val.number_value))
+                                                elif hasattr(val, 'string_value'):
+                                                    try:
+                                                        durations.append(int(val.string_value))
+                                                    except ValueError:
+                                                        durations.append(2)  # Default
+                                        elif hasattr(durations_field, 'value') and hasattr(durations_field.value, 'list_value'):
+                                            durations = []
+                                            for val in durations_field.value.list_value.values:
+                                                if hasattr(val, 'number_value'):
+                                                    durations.append(int(val.number_value))
+                                                elif hasattr(val, 'string_value'):
+                                                    try:
+                                                        durations.append(int(val.string_value))
+                                                    except ValueError:
+                                                        durations.append(2)  # Default
+                                        else:
+                                            try:
+                                                durations = [int(d) for d in durations_field]
+                                            except:
+                                                durations = []
+                                    else:
+                                        durations = []  # Will use defaults
+                                else:
+                                    actions = ["A"]  # Fallback
+                            # Legacy support for old press_button calls
+                            elif part.function_call.name == "press_button":
+                                legacy_args = part.function_call.args
+                                
+                                # Check for 'button' parameter
+                                button_field = None
+                                if hasattr(legacy_args, 'fields') and 'button' in legacy_args.fields:
+                                    button_field = legacy_args.fields['button']
+                                elif 'button' in legacy_args:
+                                    button_field = legacy_args['button']
+                                
+                                if button_field:
+                                    if hasattr(button_field, 'string_value'):
+                                        button = button_field.string_value
+                                    elif hasattr(button_field, 'value') and hasattr(button_field.value, 'string_value'):
+                                        button = button_field.value.string_value
+                                    else:
+                                        button = str(button_field)
                                     actions = [button]
+                                    durations = []
+                                else:
+                                    # Check for 'actions' parameter
+                                    actions_field = None
+                                    if hasattr(legacy_args, 'fields') and 'actions' in legacy_args.fields:
+                                        actions_field = legacy_args.fields['actions']
+                                    elif 'actions' in legacy_args:
+                                        actions_field = legacy_args['actions']
+                                    
+                                    if actions_field:
+                                        if hasattr(actions_field, 'list_value') and hasattr(actions_field.list_value, 'values'):
+                                            actions = [val.string_value for val in actions_field.list_value.values if hasattr(val, 'string_value')]
+                                        elif hasattr(actions_field, 'value') and hasattr(actions_field.value, 'list_value'):
+                                            actions = [val.string_value for val in actions_field.value.list_value.values if hasattr(val, 'string_value')]
+                                        else:
+                                            actions = list(actions_field)
+                                        durations = []
+                                    else:
+                                        actions = ["A"]  # Fallback
+                                        durations = []
                             elif part.function_call.name == "update_notepad":
-                                if 'content' in part.function_call.args:
-                                    notepad_update = str(part.function_call.args['content'])
-            
-            if not response_text:
-                response_text = "AI analyzed the game state and chose action."
+                                notepad_args = part.function_call.args
+                                
+                                content_field = None
+                                if hasattr(notepad_args, 'fields') and 'content' in notepad_args.fields:
+                                    content_field = notepad_args.fields['content']
+                                elif 'content' in notepad_args:
+                                    content_field = notepad_args['content']
+                                
+                                if content_field:
+                                    if hasattr(content_field, 'string_value'):
+                                        notepad_update = content_field.string_value
+                                    elif hasattr(content_field, 'value') and hasattr(content_field.value, 'string_value'):
+                                        notepad_update = content_field.value.string_value
+                                    else:
+                                        notepad_update = str(content_field)
             
             # Handle notepad update
             if notepad_update:
                 self._update_notepad(notepad_update)
-                print(f"📝 Updated notepad: {notepad_update[:50]}...")
+            
+            if not response_text:
+                response_text = "AI analyzed the game state and chose action."
             
             return {
                 "text": response_text,
                 "actions": actions,
+                "durations": durations,
                 "success": True,
                 "error": None
             }
@@ -317,8 +447,8 @@ For example, to move up: press_button(["UP"])
                 {
                     "type": "function",
                     "function": {
-                        "name": "press_button",
-                        "description": "Press game controller buttons",
+                        "name": "press_button_sequence",
+                        "description": "Press a sequence of buttons on the Game Boy emulator with optional custom durations",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -328,7 +458,14 @@ For example, to move up: press_button(["UP"])
                                         "type": "string",
                                         "enum": ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
                                     },
-                                    "description": "List of button actions to press in sequence"
+                                    "description": "Array of buttons to press in sequence"
+                                },
+                                "durations": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    },
+                                    "description": "Optional array of durations (in frames, 60fps) for each button. Default is 2 frames if not specified."
                                 }
                             },
                             "required": ["actions"]
@@ -352,17 +489,49 @@ For example, to move up: press_button(["UP"])
             message = response.choices[0].message
             response_text = message.content or "AI analyzed the game state."
             actions = ["A"]  # Default
+            durations = []  # Default durations
             
             if message.tool_calls:
                 for tool_call in message.tool_calls:
-                    if tool_call.function.name == "press_button":
+                    if tool_call.function.name == "press_button_sequence":
+                        print(f"🔧 OpenAI tool call: press_button_sequence")
                         args = json.loads(tool_call.function.arguments)
+                        print(f"🔧 Args: {args}")
                         if 'actions' in args:
                             actions = args['actions']
+                            print(f"✅ Extracted actions: {actions}")
+                            
+                            # Extract durations if provided
+                            if 'durations' in args:
+                                durations = args['durations']
+                                print(f"✅ Extracted durations: {durations}")
+                            else:
+                                durations = []
+                        else:
+                            print(f"⚠️ No 'actions' parameter found: {args}")
+                    # Legacy support
+                    elif tool_call.function.name == "press_button":
+                        print(f"🔧 OpenAI legacy tool call: press_button")
+                        args = json.loads(tool_call.function.arguments)
+                        print(f"🔧 Args: {args}")
+                        if 'button' in args:
+                            button = str(args['button'])
+                            actions = [button]
+                            durations = []
+                            print(f"✅ Extracted legacy button: {button}")
+                        elif 'actions' in args:
+                            actions = args['actions']
+                            durations = []
+                            print(f"✅ Extracted legacy actions: {actions}")
+                        else:
+                            print(f"⚠️ No 'button' or 'actions' parameter found: {args}")
+            else:
+                print(f"⚠️ No tool calls found, using default: {actions}")
             
             return {
                 "text": response_text,
                 "actions": actions,
+                "durations": durations,
                 "success": True,
                 "error": None
             }

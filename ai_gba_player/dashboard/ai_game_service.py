@@ -272,16 +272,36 @@ class AIGameService(threading.Thread):
             
             # Process tool calls (notepad updates and button actions)
             actions_to_send = []
+            durations_to_send = []
+            
             if ai_response.get("actions"):
                 actions_to_send = ai_response["actions"]
+                durations_to_send = ai_response.get("durations", [])
+                
+                # Validate actions
+                valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
+                invalid_actions = [action for action in actions_to_send if action not in valid_buttons]
+                if invalid_actions:
+                    # Filter out invalid actions and corresponding durations
+                    valid_action_indices = [i for i, action in enumerate(actions_to_send) if action in valid_buttons]
+                    actions_to_send = [actions_to_send[i] for i in valid_action_indices]
+                    
+                    # Filter durations to match valid actions
+                    if durations_to_send:
+                        durations_to_send = [durations_to_send[i] if i < len(durations_to_send) else 2 for i in valid_action_indices]
+                    
+                    if not actions_to_send:
+                        actions_to_send = ["A"]
+                        durations_to_send = []
                 
                 # Add to recent actions history
-                reasoning = ai_response.get("text", "No reasoning provided")
                 if actions_to_send:
-                    self._add_recent_action(actions_to_send[0], reasoning, game_state)
+                    reasoning = ai_response.get("text", "No reasoning provided")
+                    sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
+                    self._add_recent_action(sequence_description, reasoning, game_state)
                 
-                # Send button commands to mGBA  
-                self._send_button_commands(actions_to_send)
+                # Send button sequence to mGBA  
+                self._send_button_sequence(actions_to_send, durations_to_send)
             
             self.decision_count += 1
             
@@ -338,6 +358,7 @@ class AIGameService(threading.Thread):
             return {
                 "text": f"AI API failed: {str(e)}. Using intelligent fallback: {fallback_action}",
                 "actions": [fallback_action],
+                "durations": [],  # Use default durations
                 "success": False,
                 "error": str(e)
             }
@@ -367,11 +388,11 @@ class AIGameService(threading.Thread):
         self._send_chat_message("system", "❌ Failed to request screenshot - connection may be lost")
         return False
     
-    def _send_button_commands(self, actions: list):
-        """Send button commands to mGBA with enhanced error handling"""
+    def _send_button_sequence(self, actions: list, durations: list = None):
+        """Send button sequence to mGBA with optional custom durations"""
         if not self.mgba_connected or not self.client_socket:
-            print("⚠️ Cannot send commands: mGBA not connected")
-            self._send_chat_message("system", "⚠️ Cannot send commands: mGBA not connected")
+            print("⚠️ Cannot send sequence: mGBA not connected")
+            self._send_chat_message("system", "⚠️ Cannot send sequence: mGBA not connected")
             return False
         
         try:
@@ -386,27 +407,62 @@ class AIGameService(threading.Thread):
             if not valid_actions:
                 print(f"⚠️ No valid actions in: {actions}")
                 valid_actions = ["A"]  # Fallback to safe action
+                durations = []
             
+            # Process durations
+            if durations:
+                # Validate and limit durations (1-180 frames at 60fps = 1-3 seconds)
+                processed_durations = []
+                for i, duration in enumerate(durations):
+                    if i < len(valid_actions):
+                        validated_duration = max(1, min(180, int(duration)))
+                        processed_durations.append(validated_duration)
+                    
+                # Pad with default duration (2 frames) if needed
+                while len(processed_durations) < len(valid_actions):
+                    processed_durations.append(2)
+                    
+                durations_to_use = processed_durations[:len(valid_actions)]
+            else:
+                # Use default duration for all actions
+                durations_to_use = [2] * len(valid_actions)
+            
+            # Create button codes and durations
             button_codes = [button_map[action] for action in valid_actions]
-            command = ",".join(button_codes)
+            
+            # Format command as "button_codes|durations" for Lua script
+            button_codes_str = ",".join(button_codes)
+            durations_str = ",".join(map(str, durations_to_use))
+            command = f"{button_codes_str}|{durations_str}"
             
             # Send with timeout protection
             self.client_socket.settimeout(5.0)  # 5 second timeout
             self.client_socket.send(f"{command}\n".encode('utf-8'))
             self.client_socket.settimeout(0.1)  # Reset to original timeout
             
-            print(f"🎮 Sent button commands: {valid_actions} -> {command}")
-            self._send_chat_message("system", f"✅ Commands sent: {', '.join(valid_actions)}")
+            # Create user-friendly message
+            action_descriptions = []
+            for i, action in enumerate(valid_actions):
+                duration_frames = durations_to_use[i]
+                duration_ms = round(duration_frames * 16.67)  # Convert frames to milliseconds
+                action_descriptions.append(f"{action} ({duration_ms}ms)")
+            
+            sequence_description = " → ".join(action_descriptions)
+            self._send_chat_message("system", f"✅ Sequence sent: {sequence_description}")
             return True
             
         except socket.timeout:
-            print("❌ Button command timeout")
-            self._send_chat_message("system", "❌ Command sending timed out")
+            print("❌ Button sequence timeout")
+            self._send_chat_message("system", "❌ Sequence sending timed out")
             return False
         except Exception as e:
-            print(f"❌ Error sending button commands: {e}")
-            self._send_chat_message("system", f"❌ Error sending commands: {str(e)}")
+            print(f"❌ Error sending button sequence: {e}")
+            self._send_chat_message("system", f"❌ Error sending sequence: {str(e)}")
             return False
+    
+    def _send_button_commands(self, actions: list):
+        """Legacy method - redirect to sequence method for compatibility"""
+        return self._send_button_sequence(actions)
     
     def _send_chat_message(self, message_type: str, content: str):
         """Send a message to the frontend chat interface"""
