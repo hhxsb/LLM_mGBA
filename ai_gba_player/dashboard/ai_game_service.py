@@ -159,8 +159,12 @@ class AIGameService(threading.Thread):
                     if not data:
                         break
                     
-                    print(f"📨 Received from mGBA: {data}")
-                    self._process_mgba_message(data)
+                    # Split by newlines to handle multiple messages in one recv()
+                    messages = [msg.strip() for msg in data.split('\n') if msg.strip()]
+                    
+                    for message in messages:
+                        print(f"📨 Received from mGBA: {message}")
+                        self._process_mgba_message(message)
                     
                 except socket.timeout:
                     continue
@@ -185,9 +189,7 @@ class AIGameService(threading.Thread):
         try:
             if message.startswith("ready"):
                 self._handle_ready_message()
-            elif message.startswith("screenshot_with_state"):
-                self._handle_screenshot_data(message)
-            elif message.startswith("enhanced_screenshot_with_state"):
+            elif message.startswith("screenshot_with_state") or message.startswith("enhanced_screenshot_with_state"):
                 self._handle_screenshot_data(message)
             else:
                 print(f"🤔 Unknown message from mGBA: {message}")
@@ -204,40 +206,61 @@ class AIGameService(threading.Thread):
     def _handle_screenshot_data(self, message: str):
         """Handle screenshot data from mGBA and process through AI"""
         try:
-            # Parse: "screenshot_with_state||path||direction||x||y||mapId"
+            # Parse different message formats:
+            # "screenshot_with_state||path||direction||x||y||mapId" (6 parts)
+            # "enhanced_screenshot_with_state||path||previousPath||direction||x||y||mapId||buttonCount" (8 parts)
             parts = message.split("||")
-            if len(parts) >= 6:
-                message_type = parts[0]
-                screenshot_path = parts[1]
-                direction = parts[2]  # This is a string like "UP" or "UNKNOWN (48)"
-                
-                # Safely parse x, y, map_id as integers with validation
-                try:
-                    x = int(parts[3])
-                    y = int(parts[4]) 
-                    map_id = int(parts[5])
-                except ValueError as ve:
-                    print(f"⚠️ Error parsing coordinates: {ve}")
-                    print(f"🔍 Raw parts: {parts}")
-                    # Use fallback values
-                    x, y, map_id = 0, 0, 0
-                
-                # Normalize direction to handle UNKNOWN values
-                normalized_direction = self._normalize_direction(direction)
-                
-                game_state = {
-                    "position": {"x": x, "y": y},
-                    "direction": normalized_direction,
-                    "direction_raw": direction,  # Keep original for debugging
-                    "map_id": map_id
-                }
-                
-                print(f"📷 Processing screenshot: {screenshot_path}")
-                print(f"🎮 Game state: Position({x}, {y}), Direction={direction}, Map={map_id}")
-                self._process_ai_decision(screenshot_path, game_state)
-            else:
+            
+            # Validate message format
+            if len(parts) < 6:
                 print(f"⚠️ Invalid screenshot data format: {message}")
                 print(f"🔍 Expected 6+ parts, got {len(parts)}: {parts}")
+                return
+            
+            message_type = parts[0]
+            
+            # Parse based on message type
+            if message_type == "screenshot_with_state" and len(parts) >= 6:
+                screenshot_path = parts[1]
+                direction = parts[2]
+                x_str, y_str, map_id_str = parts[3], parts[4], parts[5]
+            elif message_type == "enhanced_screenshot_with_state" and len(parts) >= 8:
+                screenshot_path = parts[1]
+                # parts[2] is previousPath (not used for AI processing)
+                direction = parts[3]
+                x_str, y_str, map_id_str = parts[4], parts[5], parts[6]
+                # parts[7] is buttonCount (not used for AI processing)
+            else:
+                print(f"⚠️ Unknown message format: {message_type} with {len(parts)} parts")
+                return
+            
+            # Safely parse coordinates with improved validation
+            try:
+                # Clean any trailing characters or whitespace
+                x = int(x_str.strip())
+                y = int(y_str.strip()) 
+                map_id = int(map_id_str.strip())
+            except ValueError as ve:
+                print(f"⚠️ Error parsing coordinates: {ve}")
+                print(f"🔍 Raw coordinate strings: x='{x_str}', y='{y_str}', map_id='{map_id_str}'")
+                print(f"🔍 Full message: {message}")
+                # Use fallback values
+                x, y, map_id = 0, 0, 0
+            
+            # Normalize direction to handle UNKNOWN values
+            normalized_direction = self._normalize_direction(direction)
+            
+            game_state = {
+                "position": {"x": x, "y": y},
+                "direction": normalized_direction,
+                "direction_raw": direction,  # Keep original for debugging
+                "map_id": map_id
+            }
+            
+            print(f"📷 Processing {message_type}: {screenshot_path}")
+            print(f"🎮 Game state: Position({x}, {y}), Direction={direction}, Map={map_id}")
+            self._process_ai_decision(screenshot_path, game_state)
+            
         except Exception as e:
             print(f"❌ Error handling screenshot data: {e}")
             print(f"🔍 Raw message: {message}")
