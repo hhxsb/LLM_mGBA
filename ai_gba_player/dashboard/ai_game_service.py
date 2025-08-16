@@ -49,7 +49,8 @@ class AIGameService(threading.Thread):
         
         # Chat message storage (simple in-memory for now)
         self.chat_messages = []
-        self.max_messages = 100  # Keep last 100 messages
+        self.max_messages = 500  # Keep last 500 messages for longer history
+        self.message_counter = 0  # Track total messages sent
         
         # LLM client
         self.llm_client = None
@@ -208,13 +209,26 @@ class AIGameService(threading.Thread):
             if len(parts) >= 6:
                 message_type = parts[0]
                 screenshot_path = parts[1]
-                direction = parts[2]
-                x, y = int(parts[3]), int(parts[4])
-                map_id = int(parts[5])
+                direction = parts[2]  # This is a string like "UP" or "UNKNOWN (48)"
+                
+                # Safely parse x, y, map_id as integers with validation
+                try:
+                    x = int(parts[3])
+                    y = int(parts[4]) 
+                    map_id = int(parts[5])
+                except ValueError as ve:
+                    print(f"⚠️ Error parsing coordinates: {ve}")
+                    print(f"🔍 Raw parts: {parts}")
+                    # Use fallback values
+                    x, y, map_id = 0, 0, 0
+                
+                # Normalize direction to handle UNKNOWN values
+                normalized_direction = self._normalize_direction(direction)
                 
                 game_state = {
                     "position": {"x": x, "y": y},
-                    "direction": direction,
+                    "direction": normalized_direction,
+                    "direction_raw": direction,  # Keep original for debugging
                     "map_id": map_id
                 }
                 
@@ -223,8 +237,10 @@ class AIGameService(threading.Thread):
                 self._process_ai_decision(screenshot_path, game_state)
             else:
                 print(f"⚠️ Invalid screenshot data format: {message}")
+                print(f"🔍 Expected 6+ parts, got {len(parts)}: {parts}")
         except Exception as e:
             print(f"❌ Error handling screenshot data: {e}")
+            print(f"🔍 Raw message: {message}")
             self._send_chat_message("system", f"❌ Screenshot processing error: {str(e)}")
     
     def _process_ai_decision(self, screenshot_path: str, game_state: Dict[str, Any]):
@@ -395,10 +411,12 @@ class AIGameService(threading.Thread):
     def _send_chat_message(self, message_type: str, content: str):
         """Send a message to the frontend chat interface"""
         try:
+            self.message_counter += 1
             message = {
                 "type": "system",
                 "content": content,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "id": self.message_counter  # Add unique ID for tracking
             }
             
             # Store in local message buffer
@@ -430,11 +448,13 @@ class AIGameService(threading.Thread):
                 
                 position_text = f"📍 Position: ({game_state['position']['x']}, {game_state['position']['y']}) facing {game_state['direction']}"
                 
+                self.message_counter += 1
                 message = {
                     "type": "screenshot",
                     "image_data": f"data:image/png;base64,{image_data}",
                     "game_state": position_text,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "id": self.message_counter  # Add unique ID for tracking
                 }
                 
                 # Store in local message buffer
@@ -461,12 +481,14 @@ class AIGameService(threading.Thread):
     def _send_ai_response_message(self, ai_response: Dict[str, Any]):
         """Send AI response as a received message in chat"""
         try:
+            self.message_counter += 1
             message = {
                 "type": "ai_response",
                 "text": ai_response.get("text", ""),
                 "actions": ai_response.get("actions", []),
                 "success": ai_response.get("success", True),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "id": self.message_counter  # Add unique ID for tracking
             }
             
             # Store in local message buffer
@@ -579,10 +601,30 @@ class AIGameService(threading.Thread):
         if len(self.recent_actions) > self.max_recent_actions:
             self.recent_actions.pop(0)
     
+    def _normalize_direction(self, direction_str: str) -> str:
+        """Normalize direction string to handle UNKNOWN values"""
+        if not direction_str:
+            return "UNKNOWN"
+        
+        # Handle "UNKNOWN (XX)" format
+        if direction_str.startswith("UNKNOWN"):
+            return "UNKNOWN"
+        
+        # Normalize to uppercase and validate known directions
+        direction = direction_str.upper().strip()
+        valid_directions = ["UP", "DOWN", "LEFT", "RIGHT"]
+        
+        if direction in valid_directions:
+            return direction
+        else:
+            print(f"⚠️ Unknown direction value: '{direction_str}' -> normalized to 'UNKNOWN'")
+            return "UNKNOWN"
+    
     def _get_intelligent_fallback_action(self, game_state: Dict[str, Any]) -> str:
         """Get intelligent fallback action based on game state"""
         map_id = game_state.get('map_id', 0)
-        direction = game_state.get('direction', 'UNKNOWN')
+        direction_raw = game_state.get('direction', 'UNKNOWN')
+        direction = self._normalize_direction(direction_raw)
         x, y = game_state.get('position', {}).get('x', 0), game_state.get('position', {}).get('y', 0)
         
         # If we've been in the same position for too long, try moving
@@ -592,9 +634,13 @@ class AIGameService(threading.Thread):
                 if self._stuck_count > 3:
                     # Try different directions when stuck
                     fallback_moves = ["UP", "DOWN", "LEFT", "RIGHT"]
-                    current_dir_index = fallback_moves.index(direction) if direction in fallback_moves else 0
-                    next_direction = fallback_moves[(current_dir_index + 1) % len(fallback_moves)]
-                    print(f"⚠️ Stuck detected, trying direction: {next_direction}")
+                    if direction in fallback_moves:
+                        current_dir_index = fallback_moves.index(direction)
+                        next_direction = fallback_moves[(current_dir_index + 1) % len(fallback_moves)]
+                    else:
+                        # If direction is UNKNOWN, start with UP
+                        next_direction = "UP"
+                    print(f"⚠️ Stuck detected (direction: {direction_raw}), trying: {next_direction}")
                     return next_direction
             else:
                 self._stuck_count = 0
@@ -611,8 +657,11 @@ class AIGameService(threading.Thread):
         elif map_id == 40:  # Oak's lab - interact
             return "A"
         else:
-            # General exploration
-            return "A"
+            # General exploration - if direction is unknown, try to move
+            if direction == "UNKNOWN":
+                return "UP"  # Safe default movement
+            else:
+                return "A"  # Try to interact
     
     def _handle_ai_processing_error(self, error: Exception, screenshot_path: str, game_state: Dict[str, Any]):
         """Handle AI processing errors with graceful recovery"""

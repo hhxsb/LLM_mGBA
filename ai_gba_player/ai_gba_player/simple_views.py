@@ -179,6 +179,7 @@ def dashboard_view(request):
         let messageCount = 0;
         let autoScroll = true;
         let lastMessageCount = 0;
+        let lastProcessedMessageId = 0;  // Track last processed message ID
         let pollingInterval = null;
         
         // Start polling for messages when page loads
@@ -200,17 +201,35 @@ def dashboard_view(request):
                 .then(response => response.json())
                 .then(data => {
                     if (data.success && data.messages) {
-                        // Only show new messages
-                        const newMessages = data.messages.slice(lastMessageCount);
-                        if (newMessages.length > 0) {
-                            newMessages.forEach(message => {
-                                displayMessage(message);
-                            });
-                            lastMessageCount = data.messages.length;
+                        // Handle message buffer rotation - check for message ID gaps
+                        const messages = data.messages;
+                        if (messages.length > 0) {
+                            // Use message IDs to detect if buffer has rotated
+                            const lastMessageId = messages[messages.length - 1].id;
+                            if (lastMessageId && lastProcessedMessageId && lastMessageId < lastProcessedMessageId) {
+                                // Buffer has rotated, clear chat and reload all messages
+                                document.getElementById('chat-messages').innerHTML = '';
+                                messages.forEach(message => displayMessage(message));
+                                lastProcessedMessageId = lastMessageId;
+                            } else {
+                                // Normal incremental update
+                                const newMessages = messages.filter(msg => 
+                                    !lastProcessedMessageId || (msg.id && msg.id > lastProcessedMessageId)
+                                );
+                                newMessages.forEach(message => displayMessage(message));
+                                if (newMessages.length > 0) {
+                                    lastProcessedMessageId = newMessages[newMessages.length - 1].id;
+                                }
+                            }
                         }
                         
-                        // Update service status
+                        // Update service status with buffer info
                         updateServiceStatusFromData(data);
+                        
+                        // Show buffer status if available
+                        if (data.total_messages && data.buffer_size) {
+                            console.log(`Messages: ${data.buffer_size}/${data.max_buffer_size} (total: ${data.total_messages})`);
+                        }
                     }
                 })
                 .catch(error => {
@@ -638,12 +657,17 @@ def get_chat_messages(request):
         if service and service.is_alive():
             # Get messages from service
             messages = getattr(service, 'chat_messages', [])
+            message_counter = getattr(service, 'message_counter', 0)
+            max_messages = getattr(service, 'max_messages', 100)
             
             return JsonResponse({
                 'success': True,
                 'messages': messages,
                 'connected': service.mgba_connected,
                 'decision_count': getattr(service, 'decision_count', 0),
+                'total_messages': message_counter,
+                'buffer_size': len(messages),
+                'max_buffer_size': max_messages,
                 'status': 'running'
             })
         else:
