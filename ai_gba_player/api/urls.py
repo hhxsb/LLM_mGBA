@@ -11,4 +11,7 @@ urlpatterns = [
     path('messages/', views.recent_messages, name='recent_messages'),
     path('messages/clear/', views.clear_messages, name='clear_messages'),
     path('logs/', views.system_logs, name='system_logs'),
+    path('games/', views.available_games, name='available_games'),
+    path('games/set/', views.set_game_override, name='set_game_override'),
+    path('games/status/', views.current_game_status, name='current_game_status'),
 ]

@@ -21,6 +21,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from .models import Configuration
 from .llm_client import LLMClient
+from .game_detector import get_game_detector
 
 
 class AIGameService(threading.Thread):
@@ -54,6 +55,11 @@ class AIGameService(threading.Thread):
         
         # LLM client
         self.llm_client = None
+        
+        # Game detection
+        self.game_detector = get_game_detector()
+        self.current_game_id = None
+        self.game_config_sent = False
         
         # Memory system
         self.notepad_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/notepad.txt")
@@ -189,6 +195,10 @@ class AIGameService(threading.Thread):
         try:
             if message.startswith("ready"):
                 self._handle_ready_message()
+            elif message.startswith("config_loaded"):
+                self._handle_config_loaded_message()
+            elif message.startswith("config_error"):
+                self._handle_config_error_message(message)
             elif message.startswith("screenshot_with_state") or message.startswith("enhanced_screenshot_with_state"):
                 self._handle_screenshot_data(message)
             else:
@@ -200,8 +210,130 @@ class AIGameService(threading.Thread):
     def _handle_ready_message(self):
         """Handle 'ready' message from mGBA"""
         print("✅ mGBA is ready for gameplay")
-        self._send_chat_message("system", "✅ mGBA ready - requesting first screenshot...")
+        self._send_chat_message("system", "✅ mGBA ready - detecting game and sending config...")
+        
+        # Detect game and send configuration to Lua
+        self._detect_and_configure_game()
+        
+        # Wait a moment for config to be processed before requesting screenshot
+        time.sleep(0.5)
+        
+        # Then request first screenshot
         self._request_screenshot()
+    
+    def _handle_config_loaded_message(self):
+        """Handle confirmation that Lua script loaded the game config"""
+        print("✅ Game configuration loaded by mGBA")
+        self._send_chat_message("system", "✅ Game configuration loaded successfully")
+        self.game_config_sent = True
+    
+    def _handle_config_error_message(self, message: str):
+        """Handle config error from Lua script"""
+        error_msg = message.replace("config_error||", "") if "||" in message else "Unknown config error"
+        print(f"❌ Game configuration error: {error_msg}")
+        self._send_chat_message("system", f"❌ Config error: {error_msg}")
+        self.game_config_sent = False
+    
+    def _detect_and_configure_game(self):
+        """Detect game and send configuration to mGBA Lua script"""
+        try:
+            # Load configuration to get ROM info
+            config = self._load_config()
+            if not config:
+                self._send_chat_message("system", "❌ No configuration found")
+                return
+            
+            # Get ROM information for detection
+            rom_path = config.get('rom_path', '')
+            rom_display_name = config.get('rom_display_name', '')
+            
+            print(f"🔍 ROM detection info: path='{rom_path}', display_name='{rom_display_name}'")
+            
+            # Check if there's already a manual override
+            print(f"🔍 Game detector manual override: {self.game_detector.manual_override}")
+            
+            # Test individual detection methods for debugging
+            name_detection = self.game_detector.detect_game_from_rom_name(rom_display_name) if rom_display_name else None
+            path_detection = self.game_detector.detect_game_from_path(rom_path) if rom_path else None
+            print(f"🔍 Name detection result: {name_detection}")
+            print(f"🔍 Path detection result: {path_detection}")
+            
+            # Detect game using the game detector
+            detected_game_id, detection_source = self.game_detector.get_current_game(
+                rom_name=rom_display_name,
+                rom_path=rom_path
+            )
+            
+            print(f"🔍 Final detection result: {detected_game_id} (source: {detection_source})")
+            
+            self.current_game_id = detected_game_id
+            game_config = self.game_detector.get_game_config(detected_game_id)
+            
+            if not game_config:
+                self._send_chat_message("system", f"❌ Unknown game: {detected_game_id}")
+                return
+            
+            print(f"🎮 Detected game: {game_config.name} (source: {detection_source})")
+            self._send_chat_message("system", f"🎮 Game detected: {game_config.name}")
+            
+            # Update configuration with detection results
+            self._update_configuration_with_detection(detected_game_id, detection_source, config)
+            
+            # Send game configuration to Lua script
+            lua_config = self.game_detector.format_game_config_for_lua(detected_game_id)
+            if lua_config:
+                self._send_game_config_to_lua(lua_config)
+                self.game_config_sent = True
+            else:
+                self._send_chat_message("system", "❌ Failed to format game config for Lua")
+                
+        except Exception as e:
+            print(f"❌ Game detection error: {e}")
+            self._send_chat_message("system", f"❌ Game detection failed: {str(e)}")
+    
+    def _update_configuration_with_detection(self, game_id: str, detection_source: str, config: Dict[str, Any]):
+        """Update database configuration with game detection results"""
+        try:
+            # Update the database configuration
+            from .models import Configuration
+            db_config = Configuration.get_config()
+            
+            # Only update if detection source is not manual override
+            if detection_source != "manual":
+                db_config.detected_game = game_id
+                db_config.detection_source = detection_source
+                
+                # If no manual override, update the active game
+                if not db_config.game_override:
+                    db_config.game = game_id
+            
+            db_config.save()
+            print(f"📝 Updated configuration: game={game_id}, source={detection_source}")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to update configuration: {e}")
+    
+    def _send_game_config_to_lua(self, lua_config: str):
+        """Send game configuration to mGBA Lua script"""
+        try:
+            if not self.mgba_connected or not self.client_socket:
+                print("⚠️ Cannot send config: mGBA not connected")
+                return False
+            
+            # Send config command to Lua
+            config_message = f"game_config||{lua_config}"
+            self.client_socket.settimeout(5.0)
+            self.client_socket.send(f"{config_message}\n".encode('utf-8'))
+            self.client_socket.settimeout(0.1)
+            
+            print("📤 Game configuration sent to mGBA")
+            self._send_chat_message("system", "📤 Game configuration sent to mGBA")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error sending game config: {e}")
+            self._send_chat_message("system", f"❌ Failed to send game config: {str(e)}")
+            return False
     
     def _handle_screenshot_data(self, message: str):
         """Handle screenshot data from mGBA and process through AI"""

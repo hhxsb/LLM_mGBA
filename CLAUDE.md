@@ -55,15 +55,24 @@ python manage.py runserver
 ### Testing Components
 ```bash
 # Test AI service communication
-python test_ai_service.py
+python dev-tools/test-scripts/test_ai_service.py
 
 # Test Django app
 cd ai_gba_player
 python manage.py test
 
+# Test game detection and Sapphire support
+python dev-tools/test-scripts/test_game_detection.py
+python dev-tools/test-scripts/test_final_sapphire_flow.py
+
 # Test mGBA connection (while Django server is running)
 curl -X POST http://localhost:8000/api/restart-service/
 curl http://localhost:8000/api/chat-messages/
+
+# Memory debugging tools (load in mGBA Script Viewer)
+# Load these files in mGBA Tools > Script Viewer:
+# - dev-tools/memory-debugging/simple_sapphire_memory_finder.lua
+# - dev-tools/memory-debugging/find_sapphire_direction.lua
 ```
 
 ## Project Structure
@@ -102,7 +111,19 @@ games/pokemon_red/                 # Game-specific modules (extensible)
 ├── knowledge_system.py            # Game-specific knowledge
 └── prompt_template.py             # Pokemon Red prompts
 
-test_ai_service.py                 # Test script for AI service
+dev-tools/                         # Development & debugging tools
+├── memory-debugging/              # Memory address debugging scripts
+│   ├── simple_sapphire_memory_finder.lua
+│   └── find_sapphire_direction.lua
+└── test-scripts/                  # System validation tests
+    ├── test_game_detection.py
+    └── test_final_sapphire_flow.py
+
+docs/                              # Documentation
+├── QUICKSTART.md                  # Quick setup guide
+├── POKEMON_SAPPHIRE_SETUP.md      # Sapphire-specific setup
+└── SAPPHIRE_MEMORY_DEBUG_GUIDE.md # Memory debugging guide
+
 config_emulator.json               # Configuration file (auto-updated)
 ```
 

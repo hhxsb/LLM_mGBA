@@ -311,6 +311,9 @@ class Configuration(models.Model):
     
     # Game Settings
     game = models.CharField(max_length=50, default="pokemon_red", help_text="Game type to play")
+    game_override = models.CharField(max_length=50, blank=True, help_text="Manual game override (overrides auto-detection)")
+    detected_game = models.CharField(max_length=50, blank=True, help_text="Auto-detected game from ROM")
+    detection_source = models.CharField(max_length=20, default="default", help_text="Source of game detection: auto, manual, or default")
     llm_provider = models.CharField(max_length=50, default="google", help_text="LLM provider to use")
     
     # API Configuration (JSON field for complex nested data)
@@ -480,6 +483,9 @@ class Configuration(models.Model):
         """Convert configuration to dictionary format"""
         return {
             'game': self.game,
+            'game_override': self.game_override,
+            'detected_game': self.detected_game,
+            'detection_source': self.detection_source,
             'llm_provider': self.llm_provider,
             'providers': self.providers,
             'host': self.host,
@@ -489,6 +495,9 @@ class Configuration(models.Model):
             'video_path': self.video_path,
             'prompt_template_path': self.prompt_template_path,
             'knowledge_file': self.knowledge_file,
+            'rom_path': self.rom_path,
+            'rom_display_name': self.rom_display_name,
+            'mgba_path': self.mgba_path,
             'decision_cooldown': self.decision_cooldown,
             'thinking_history_max_chars': self.thinking_history_max_chars,
             'thinking_history_keep_entries': self.thinking_history_keep_entries,
