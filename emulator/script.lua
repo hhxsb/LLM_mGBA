@@ -63,11 +63,11 @@ function handleGameConfig(configString)
                 [4] = "RIGHT"
             },
             fallbackAddresses = {
-                -- Working address set (user confirmed X, Y, Map work)
+                -- Working address set (user confirmed X, Y, Map work, direction discovered)
                 {
                     playerX = 0x02025734,
                     playerY = 0x02025736,
-                    playerDirection = 0x02025738,  -- Will test nearby offsets
+                    playerDirection = 0x0202002F,  -- Discovered by comprehensive direction search
                     mapId = 0x0202573A,
                 },
                 -- Original known addresses (backup)
@@ -230,6 +230,21 @@ function scanForPlayerData()
     }
 end
 
+-- Enhanced direction validation for both standard and TBL encodings
+function isValidDirection(direction)
+    -- Standard GBA encoding (1-4)
+    if direction >= 1 and direction <= 4 then
+        return true
+    end
+    
+    -- TBL hex encoding (0x79-0x7C)
+    if direction == 0x79 or direction == 0x7A or direction == 0x7B or direction == 0x7C then
+        return true
+    end
+    
+    return false
+end
+
 -- Check if an address contains valid player data
 function isValidPlayerDataLocation(address)
     -- Try to read potential coordinate values
@@ -242,13 +257,12 @@ function isValidPlayerDataLocation(address)
     if x and y and direction and mapId then
         -- Coordinates should be reasonable (0-100 range is more typical for Pokemon maps)
         if x >= 0 and x <= 100 and y >= 0 and y <= 100 then
-            -- Direction should be 1-4 for GBA games (not 0)
-            if direction >= 1 and direction <= 4 then
+            -- Enhanced direction validation for both encodings
+            if isValidDirection(direction) then
                 -- Map ID should be reasonable (0-255 range, but usually much smaller)
                 if mapId >= 0 and mapId <= 255 then
                     -- Additional validation: check if the values look like real game data
                     -- X and Y shouldn't both be 0 (unless player is actually at origin)
-                    -- Direction shouldn't be exactly 2 (UP) if we're trying to find varying data
                     return true
                 end
             end
@@ -327,19 +341,25 @@ function testAddressSet(addresses)
     if x and y and direction and mapId then
         -- More lenient coordinate range for testing
         if x >= 0 and x <= 200 and y >= 0 and y <= 200 then
-            -- Direction should be 1-4 for GBA games
-            if direction >= 1 and direction <= 4 then
+            -- Enhanced direction validation for both standard and TBL encodings
+            if isValidDirection(direction) then
                 -- Map ID should be reasonable
                 if mapId >= 0 and mapId <= 255 then
                     local dirText = getDirectionText(direction)
-                    debugBuffer:print("    Values seem valid: X=" .. x .. ", Y=" .. y .. 
+                    local encodingType = ""
+                    if direction >= 1 and direction <= 4 then
+                        encodingType = "Standard"
+                    elseif direction >= 0x79 and direction <= 0x7C then
+                        encodingType = "TBL"
+                    end
+                    debugBuffer:print("    Values valid (" .. encodingType .. "): X=" .. x .. ", Y=" .. y .. 
                                      ", Dir=" .. direction .. " (" .. dirText .. "), Map=" .. mapId .. "\n")
                     return true
                 else
                     debugBuffer:print("    Invalid map ID: " .. mapId .. "\n")
                 end
             else
-                debugBuffer:print("    Invalid direction: " .. direction .. " (should be 1-4)\n")
+                debugBuffer:print("    Invalid direction: " .. direction .. " (should be 1-4 or 0x79-0x7C)\n")
             end
         else
             debugBuffer:print("    Invalid coordinates: X=" .. x .. ", Y=" .. y .. " (should be 0-200)\n")

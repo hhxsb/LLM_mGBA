@@ -48,6 +48,9 @@ class AIGameService(threading.Thread):
         self.last_screenshot = None
         self.decision_count = 0
         
+        # Message buffering for handling partial messages
+        self.message_buffer = ""
+        
         # Chat message storage (simple in-memory for now)
         self.chat_messages = []
         self.max_messages = 500  # Keep last 500 messages for longer history
@@ -71,6 +74,15 @@ class AIGameService(threading.Thread):
         self.player_x = 0
         self.player_y = 0
         self.map_id = 0
+        
+        # Enhanced position tracking
+        self.position_history = []  # Last 10 positions
+        self.movement_patterns = {}  # Track repeated movement attempts
+        
+        # Dynamic address validation
+        self.address_validation_failures = 0
+        self.last_valid_data_time = None
+        self.recalibration_needed = False
         
         # Initialize notepad
         self._initialize_notepad()
@@ -161,16 +173,25 @@ class AIGameService(threading.Thread):
             
             while self.running and self.mgba_connected:
                 try:
-                    data = self.client_socket.recv(1024).decode('utf-8').strip()
+                    data = self.client_socket.recv(1024).decode('utf-8')
                     if not data:
                         break
                     
-                    # Split by newlines to handle multiple messages in one recv()
-                    messages = [msg.strip() for msg in data.split('\n') if msg.strip()]
+                    # Add to message buffer
+                    self.message_buffer += data
                     
-                    for message in messages:
-                        print(f"📨 Received from mGBA: {message}")
-                        self._process_mgba_message(message)
+                    # Debug: Show if we received partial data
+                    if len(self.message_buffer) > 100 and '\n' not in self.message_buffer:
+                        print(f"🔄 Buffering large message: {len(self.message_buffer)} chars")
+                    
+                    # Process complete messages (terminated by newlines)
+                    while '\n' in self.message_buffer:
+                        line, self.message_buffer = self.message_buffer.split('\n', 1)
+                        message = line.strip()
+                        
+                        if message:  # Only process non-empty messages
+                            print(f"📨 Received from mGBA: {message}")
+                            self._process_mgba_message(message)
                     
                 except socket.timeout:
                     continue
@@ -201,8 +222,17 @@ class AIGameService(threading.Thread):
                 self._handle_config_error_message(message)
             elif message.startswith("screenshot_with_state") or message.startswith("enhanced_screenshot_with_state"):
                 self._handle_screenshot_data(message)
+            elif "||" in message and len(message.split("||")) >= 6:
+                # This looks like screenshot data without the proper prefix (probably due to message splitting)
+                # Try to process it as screenshot_with_state
+                print(f"🔧 Attempting to process orphaned screenshot data: {message}")
+                self._handle_screenshot_data("screenshot_with_state||" + message)
             else:
-                print(f"🤔 Unknown message from mGBA: {message}")
+                # Only log as unknown if it doesn't look like partial screenshot data
+                if not any(keyword in message.lower() for keyword in ["screenshot", "png", "||"]):
+                    print(f"🤔 Unknown message from mGBA: {message}")
+                else:
+                    print(f"🚧 Ignoring probable partial message: {message[:50]}...")
         except Exception as e:
             print(f"❌ Error processing mGBA message: {e}")
             self._send_chat_message("system", f"❌ Error processing message: {str(e)}")
@@ -402,10 +432,19 @@ class AIGameService(threading.Thread):
         """Process screenshot through AI and send commands back to mGBA"""
         try:
             # Update game state tracking
-            self.player_x = game_state.get('position', {}).get('x', 0)
-            self.player_y = game_state.get('position', {}).get('y', 0) 
-            self.player_direction = game_state.get('direction', 'UNKNOWN')
-            self.map_id = game_state.get('map_id', 0)
+            new_x = game_state.get('position', {}).get('x', 0)
+            new_y = game_state.get('position', {}).get('y', 0)
+            new_direction = game_state.get('direction', 'UNKNOWN')
+            new_map_id = game_state.get('map_id', 0)
+            
+            # Track position changes for movement analysis
+            self._update_position_tracking(new_x, new_y, new_direction, new_map_id)
+            
+            # Update current state
+            self.player_x = new_x
+            self.player_y = new_y
+            self.player_direction = new_direction
+            self.map_id = new_map_id
             
             # Show screenshot in chat (sent message)
             self._send_screenshot_message(screenshot_path, game_state)
@@ -419,8 +458,12 @@ class AIGameService(threading.Thread):
             # Get recent actions text for enhanced context
             recent_actions_text = self._get_recent_actions_text()
             
+            # Add movement analysis to context
+            movement_analysis = self._get_movement_analysis_text()
+            
             # Process through AI with enhanced context
-            ai_response = self._call_ai_api(screenshot_path, game_state, config, recent_actions_text)
+            enhanced_context = recent_actions_text + "\n" + movement_analysis
+            ai_response = self._call_ai_api(screenshot_path, game_state, config, enhanced_context)
             
             # Show AI response in chat (received message)
             self._send_ai_response_message(ai_response)
@@ -813,12 +856,30 @@ class AIGameService(threading.Thread):
             self.recent_actions.pop(0)
     
     def _normalize_direction(self, direction_str: str) -> str:
-        """Normalize direction string to handle UNKNOWN values"""
+        """Enhanced direction normalization supporting both standard and TBL encodings"""
         if not direction_str:
             return "UNKNOWN"
         
         # Handle "UNKNOWN (XX)" format
         if direction_str.startswith("UNKNOWN"):
+            return "UNKNOWN"
+        
+        # Handle numeric direction values (both standard and TBL)
+        if direction_str.isdigit():
+            direction_value = int(direction_str)
+            
+            # Standard GBA encoding (1-4)
+            standard_directions = {1: "DOWN", 2: "UP", 3: "LEFT", 4: "RIGHT"}
+            if direction_value in standard_directions:
+                return standard_directions[direction_value]
+            
+            # TBL hex encoding (0x79-0x7C = 121-124 decimal)
+            tbl_directions = {121: "UP", 122: "DOWN", 123: "LEFT", 124: "RIGHT"}
+            if direction_value in tbl_directions:
+                return tbl_directions[direction_value]
+            
+            # Log unknown numeric values for debugging
+            print(f"⚠️ Unknown numeric direction value: {direction_value} (not standard 1-4 or TBL 121-124)")
             return "UNKNOWN"
         
         # Normalize to uppercase and validate known directions
@@ -892,6 +953,75 @@ class AIGameService(threading.Thread):
         # Request next screenshot after a delay
         time.sleep(2)
         self._request_screenshot()
+    
+    def _update_position_tracking(self, x: int, y: int, direction: str, map_id: int):
+        """Update position tracking for movement pattern analysis"""
+        current_position = {
+            'x': x, 'y': y, 'direction': direction, 'map_id': map_id,
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        }
+        
+        # Add to position history
+        self.position_history.append(current_position)
+        if len(self.position_history) > 10:
+            self.position_history.pop(0)
+            
+        # Detect if position hasn't changed (stuck detection)
+        if len(self.position_history) >= 3:
+            recent_positions = [(p['x'], p['y'], p['map_id']) for p in self.position_history[-3:]]
+            if len(set(recent_positions)) == 1:  # All recent positions are the same
+                print(f"⚠️ Movement stuck detected at position ({x}, {y}) on map {map_id}")
+    
+    def _get_movement_analysis_text(self) -> str:
+        """Generate movement analysis text for LLM context"""
+        if len(self.position_history) < 2:
+            return ""
+            
+        analysis = ["\n## MOVEMENT ANALYSIS:"]
+        
+        # Recent movement summary
+        if len(self.position_history) >= 3:
+            last_3 = self.position_history[-3:]
+            positions = [(p['x'], p['y']) for p in last_3]
+            
+            if len(set(positions)) == 1:
+                analysis.append("⚠️ WARNING: You haven't moved in the last 3 actions - you may be stuck!")
+                analysis.append("- Try a different direction or approach")
+                analysis.append("- Look for alternative paths or interactable objects")
+            elif len(set(positions)) == 2:
+                analysis.append("⚠️ You're moving back and forth between the same positions")
+                analysis.append("- This suggests you're blocked or stuck in a pattern")
+                analysis.append("- Try a completely different direction or strategy")
+            else:
+                analysis.append("✅ Good movement progress - you're exploring new positions")
+        
+        # Map transition detection
+        if len(self.position_history) >= 2:
+            current_map = self.position_history[-1]['map_id']
+            prev_map = self.position_history[-2]['map_id']
+            
+            if current_map != prev_map:
+                analysis.append(f"🚪 Map transition detected: from map {prev_map} to map {current_map}")
+                analysis.append("- You successfully entered a new area!")
+                analysis.append("- Update your notepad with this new location")
+        
+        # Position trend analysis
+        if len(self.position_history) >= 5:
+            recent_x = [p['x'] for p in self.position_history[-5:]]
+            recent_y = [p['y'] for p in self.position_history[-5:]]
+            
+            x_trend = "stable"
+            if max(recent_x) - min(recent_x) > 2:
+                x_trend = "increasing" if recent_x[-1] > recent_x[0] else "decreasing"
+                
+            y_trend = "stable" 
+            if max(recent_y) - min(recent_y) > 2:
+                y_trend = "increasing" if recent_y[-1] > recent_y[0] else "decreasing"
+                
+            if x_trend != "stable" or y_trend != "stable":
+                analysis.append(f"📈 Movement trend: X-axis {x_trend}, Y-axis {y_trend}")
+        
+        return "\n".join(analysis) if len(analysis) > 1 else ""
     
     def _cleanup(self):
         """Clean up resources"""

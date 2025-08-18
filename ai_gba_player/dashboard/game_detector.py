@@ -64,29 +64,48 @@ class GameDetector:
                 "mapId": None,
             },
             direction_encoding={
+                # Standard GBA encoding (most common)
                 1: "DOWN",
                 2: "UP",
                 3: "LEFT", 
-                4: "RIGHT"
+                4: "RIGHT",
+                # TBL hex encoding (from official Pokemon documentation)
+                0x79: "UP",     # 121 decimal
+                0x7A: "DOWN",   # 122 decimal
+                0x7B: "LEFT",   # 123 decimal
+                0x7C: "RIGHT"   # 124 decimal
             },
             fallback_addresses=[
+                # User-confirmed working addresses with discovered direction address
+                {
+                    "playerX": 0x02025734,
+                    "playerY": 0x02025736,
+                    "playerDirection": 0x0202002F,  # Discovered by comprehensive direction search
+                    "mapId": 0x0202573A,
+                    "data_structure": "split",  # Coordinates and direction stored separately
+                    "encoding_type": "auto_detect"  # Test both standard and TBL
+                },
+                # Original known addresses (backup)
                 {
                     "playerX": 0x02031DBC,
                     "playerY": 0x02031DBE,
                     "playerDirection": 0x02031DC0,
                     "mapId": 0x02031DC2,
+                    "encoding_type": "standard"
                 },
                 {
                     "playerX": 0x02024EA4,
                     "playerY": 0x02024EA6,
                     "playerDirection": 0x02024EA8,
                     "mapId": 0x02024EAA,
+                    "encoding_type": "standard"
                 },
                 {
                     "playerX": 0x02037BA8,
                     "playerY": 0x02037BAA,
                     "playerDirection": 0x02037BAC,
                     "mapId": 0x02037BAE,
+                    "encoding_type": "standard"
                 }
             ]
         )
@@ -358,7 +377,19 @@ class GameDetector:
             for i, addr_set in enumerate(config.fallback_addresses):
                 fallback_str += "{"
                 for key, value in addr_set.items():
-                    fallback_str += f'{key}=0x{value:08X},'
+                    if key in ['playerX', 'playerY', 'playerDirection', 'mapId']:
+                        # Standard hex address fields
+                        fallback_str += f'{key}=0x{value:08X},'
+                    elif key == 'direction_offsets_to_test' and isinstance(value, list):
+                        # List of offsets
+                        offsets_str = "{" + ",".join(str(x) for x in value) + "}"
+                        fallback_str += f'{key}={offsets_str},'
+                    elif key == 'encoding_type' and isinstance(value, str):
+                        # String field
+                        fallback_str += f'{key}="{value}",'
+                    else:
+                        # Skip unknown or unsupported fields
+                        continue
                 fallback_str = fallback_str.rstrip(',') + "},"
             fallback_str = fallback_str.rstrip(',') + "}"
         

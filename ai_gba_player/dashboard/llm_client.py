@@ -592,7 +592,7 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
         return map_names.get(map_id, f"Unknown Area (Map ID: {map_id})")
     
     def _get_direction_guidance_text(self, direction: str, x: int, y: int, map_id: int) -> str:
-        """Generate guidance text about player orientation and interactions"""
+        """Generate enhanced guidance text with spatial context and movement optimization"""
         directions = {
             "UP": "north",
             "DOWN": "south", 
@@ -602,16 +602,128 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
         
         facing_direction = directions.get(direction, direction)
         
+        # Generate spatial context based on position
+        spatial_context = self._generate_spatial_context(x, y, map_id)
+        
+        # Generate movement suggestions based on position and direction
+        movement_suggestions = self._generate_movement_suggestions(direction, x, y, map_id)
+        
         guidance = f"""
-## Navigation Tips:
-- To INTERACT with objects or NPCs, you MUST be FACING them and then press A
-- Your current direction is {direction} (facing {facing_direction})
-- Your current position is (X={x}, Y={y}) on map {map_id}
-- If you need to face a different direction, press the appropriate directional button first
-- In buildings, look for exits via stairs, doors, or red mats and walk directly over them
+## CURRENT SPATIAL CONTEXT:
+- Location: {self._get_map_name(map_id)} at coordinates (X={x}, Y={y})
+- Facing: {direction} ({facing_direction})
+{spatial_context}
+
+## MOVEMENT & INTERACTION STRATEGY:
+{movement_suggestions}
+
+## Navigation Rules:
+- To INTERACT with objects or NPCs, FIRST face them using directional buttons, THEN press A
+- Your current direction is {direction} - you can only interact with things in front of you
+- To enter/exit buildings, walk directly over doors, stairs, or red mats (use movement buttons)
+- If you've been pressing the same direction 3+ times with no progress, try a different approach
+- When stuck, analyze the environment and find clear paths or interactable objects
         """
         
         return guidance
+    
+    def _generate_spatial_context(self, x: int, y: int, map_id: int) -> str:
+        """Generate context about current spatial position and surroundings"""
+        
+        # Known locations with specific context
+        location_contexts = {
+            0: {  # Pallet Town
+                "general": "- Small town with houses and Oak's lab to the north",
+                "positions": {
+                    (10, 12): "- Near the center of town - good position to explore",
+                    (10, 6): "- Close to Oak's lab entrance",
+                    (8, 14): "- Near Red's house", 
+                    (12, 14): "- Near Blue's house"
+                }
+            },
+            1: {  # Viridian City
+                "general": "- Larger city with gym, Pokemon Center, and shop",
+                "positions": {}
+            },
+            37: {  # Red's House 1F
+                "general": "- Inside Red's house, ground floor",
+                "positions": {
+                    (3, 4): "- Near the stairs to go upstairs",
+                    (7, 7): "- Near the door to exit outside"
+                }
+            },
+            40: {  # Oak's Lab
+                "general": "- Professor Oak's laboratory with Pokemon and research",
+                "positions": {
+                    (5, 7): "- Near the entrance/exit",
+                    (5, 4): "- Close to Oak's desk area"
+                }
+            }
+        }
+        
+        context = ""
+        if map_id in location_contexts:
+            loc_data = location_contexts[map_id]
+            context += loc_data["general"] + "\n"
+            
+            # Check for specific position context
+            if (x, y) in loc_data["positions"]:
+                context += loc_data["positions"][(x, y)] + "\n"
+            else:
+                # General position analysis
+                context += f"- At position ({x}, {y}) - analyze your surroundings for exits and interactables\n"
+        else:
+            context += f"- Unknown area (Map {map_id}) - explore carefully and observe landmarks\n"
+            context += f"- Position ({x}, {y}) - look for exits, NPCs, or items to interact with\n"
+        
+        return context
+    
+    def _generate_movement_suggestions(self, direction: str, x: int, y: int, map_id: int) -> str:
+        """Generate smart movement suggestions based on current position and facing direction"""
+        
+        suggestions = []
+        
+        # Direction-specific interaction tips
+        if direction == "UP":
+            suggestions.append("- You can interact with anything directly above you by pressing A")
+            suggestions.append("- To interact with objects to your sides, turn LEFT or RIGHT first")
+        elif direction == "DOWN":
+            suggestions.append("- You can interact with anything directly below you by pressing A") 
+            suggestions.append("- To interact with objects to your sides, turn LEFT or RIGHT first")
+        elif direction == "LEFT":
+            suggestions.append("- You can interact with anything directly to your left by pressing A")
+            suggestions.append("- To interact with objects above/below, turn UP or DOWN first")
+        elif direction == "RIGHT":
+            suggestions.append("- You can interact with anything directly to your right by pressing A")
+            suggestions.append("- To interact with objects above/below, turn UP or DOWN first")
+        else:
+            suggestions.append("- Direction unknown - try pressing a directional button to orient yourself")
+        
+        # Position-specific suggestions
+        if map_id == 0:  # Pallet Town
+            if y < 8:  # Northern part
+                suggestions.append("- You're in the northern area - Oak's lab should be nearby")
+            elif y > 12:  # Southern part  
+                suggestions.append("- You're in the southern area - near the houses")
+            
+            if x < 8:  # Western part
+                suggestions.append("- Western side of town - Red's house area")
+            elif x > 12:  # Eastern part
+                suggestions.append("- Eastern side of town - Blue's house area")
+                
+        elif map_id == 37:  # Red's House 1F
+            suggestions.append("- Look for stairs (usually dark colored) to go upstairs")
+            suggestions.append("- Look for the door (usually at bottom) to exit outside")
+            
+        elif map_id == 40:  # Oak's Lab
+            suggestions.append("- Look for Professor Oak to talk to him")
+            suggestions.append("- Examine the Pokeball on the table if you haven't chosen a starter")
+            
+        # General movement optimization
+        suggestions.append("- If you see a clear path, move towards your objective")
+        suggestions.append("- If blocked, try moving around obstacles or look for alternative routes")
+        
+        return "\n".join(suggestions)
     
     def _read_notepad(self) -> str:
         """Read the current notepad content"""
