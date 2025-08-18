@@ -27,6 +27,12 @@ class LLMClient:
         # Notepad and memory paths
         self.notepad_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/notepad.txt")
         
+        # Prompt template system
+        self.prompt_template_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/prompt_template.txt")
+        self.prompt_template = ""
+        self.template_last_modified = 0
+        self._load_prompt_template()
+        
         # Initialize provider-specific clients
         self._init_clients()
     
@@ -54,6 +60,24 @@ class LLMClient:
                     
         except ImportError as e:
             print(f"⚠️ LLM provider import error: {e}")
+    
+    def _load_prompt_template(self):
+        """Load prompt template from file with hot-reload capability"""
+        try:
+            if self.prompt_template_path.exists():
+                current_modified = self.prompt_template_path.stat().st_mtime
+                if current_modified > self.template_last_modified:
+                    with open(self.prompt_template_path, 'r') as f:
+                        self.prompt_template = f.read()
+                    self.template_last_modified = current_modified
+                    print(f"📝 Loaded prompt template from {self.prompt_template_path}")
+            else:
+                # Fallback to a minimal template if file doesn't exist
+                self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
+                print(f"⚠️ Prompt template file not found at {self.prompt_template_path}, using fallback")
+        except Exception as e:
+            print(f"❌ Error loading prompt template: {e}")
+            self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
     
     def analyze_game_state(self, screenshot_path: str, game_state: Dict[str, Any], recent_actions_text: str = "") -> Dict[str, Any]:
         """
@@ -99,7 +123,10 @@ class LLMClient:
             }
     
     def _create_game_context(self, game_state: Dict[str, Any], recent_actions_text: str = "") -> str:
-        """Create enhanced context string for LLM based on example.py"""
+        """Create enhanced context string for LLM using optimized template"""
+        # Check for template updates (hot-reload)
+        self._load_prompt_template()
+        
         position = game_state.get('position', {})
         x, y = position.get('x', 0), position.get('y', 0)
         direction = game_state.get('direction', 'UNKNOWN')
@@ -111,47 +138,30 @@ class LLMClient:
         # Read notepad content
         notepad_content = self._read_notepad()
         
-        # Get direction guidance
+        # Generate spatial context
+        spatial_context = self._create_spatial_context(current_map, x, y, direction, map_id)
+        
+        # Format recent actions
+        if not recent_actions_text:
+            recent_actions_text = "No recent actions."
+        
+        # Format direction guidance
         direction_guidance = self._get_direction_guidance_text(direction, x, y, map_id)
         
-        context = f"""
-You are an AI playing Pokémon Red, you are the character with the red hat. Look at this screenshot and choose ONE button to press.
+        # Substitute variables in the optimized template
+        try:
+            context = self.prompt_template.format(
+                spatial_context=spatial_context,
+                recent_actions=recent_actions_text,
+                direction_guidance=direction_guidance,
+                notepad_content=notepad_content
+            )
+        except KeyError as e:
+            print(f"⚠️ Missing template variable {e}, using fallback context")
+            # Fallback context if template substitution fails
+            context = f"""You are an AI playing Pokémon, you are the character with the white hair. The name is GEMINI. Look at the screenshot(s) provided and choose button(s) to press.
 
-## Current Location
-You are in {current_map}
-Position: X={x}, Y={y}
-
-## Current Direction
-You are facing: {direction}
-
-## Controls:
-- A: To talk to people or interact with objects or advance text (NOT for entering/exiting buildings)
-- B: To cancel or go back
-- UP, DOWN, LEFT, RIGHT: To move your character (use these to enter/exit buildings)
-- START: To open the main menu
-- SELECT: Rarely used special function
-
-
-## Name Entry Screen Guide:
-- The cursor is a BLACK TRIANGLE/POINTER (▶) on the left side of the currently selected letter
-- The letter that will be selected is the one the BLACK TRIANGLE is pointing to
-- To navigate to a different letter, use UP, DOWN, LEFT, RIGHT buttons
-- To enter a letter, press A when the cursor is pointing to that letter
-- The keyboard layout is as follows:
-ROW 1: A B C D E F G H I
-ROW 2: J K L M N O P Q R
-ROW 3: S T U V W X Y Z
-ROW 4: Special characters
-ROW 5: END (bottom right)
-
-## URGENT WARNING: DO NOT PRESS A UNLESS YOU ARE ON THE CORRECT LETTER!
-
-## Navigation Rules:
-- If you've pressed the same button 3+ times with no change, TRY A DIFFERENT DIRECTION
-- You must be DIRECTLY ON TOP of exits (red mats, doors, stairs) to use them
-- Light gray or black space is NOT walkable - it's a wall/boundary you need to use the exits (red mats, doors, stairs)
-- To INTERACT with objects or NPCs, you MUST be FACING them and then press A
-- When you enter a new area or discover something important, UPDATE THE NOTEPAD using the update_notepad function
+{spatial_context}
 
 {recent_actions_text}
 
@@ -160,15 +170,28 @@ ROW 5: END (bottom right)
 ## Long-term Memory (Game State):
 {notepad_content}
 
-IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are.
-
-## IMPORTANT INSTRUCTIONS:
-1. FIRST, provide a SHORT paragraph (2-3 sentences) describing what you see in the screenshot.
-2. THEN, provide a BRIEF explanation of what you plan to do and why.
-3. FINALLY, use the press_button function to execute your decision.
-"""
+IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are."""
         
         return context
+    
+    def _create_spatial_context(self, current_map: str, x: int, y: int, direction: str, map_id: int) -> str:
+        """Generate spatial context for the optimized prompt template"""
+        spatial_context = f"""## Current Location & Spatial Awareness
+You are in {current_map}
+Position: X={x}, Y={y}
+Direction: {direction}
+Map ID: {map_id}
+
+**IMPORTANT: Use these coordinates for intelligent navigation!**
+- Lower X values = LEFT, Higher X values = RIGHT
+- Lower Y values = UP, Higher Y values = DOWN
+- **CRITICAL MOVEMENT MECHANICS**: 
+  * **Turning**: 2 frames changes facing direction (no coordinate movement)
+  * **Moving**: 30 frames moves 1 coordinate unit (only if already facing that direction)
+  * **Total movement**: Turn (2 frames) + Move (30×units frames) if changing direction
+  * **Same direction**: Just 30×units frames if already facing the right way"""
+        
+        return spatial_context
     
     def _call_google_api(self, screenshot_path: str, context: str) -> Dict[str, Any]:
         """Call Google Gemini API"""
@@ -207,6 +230,12 @@ Examples:
 
 Duration is in frames (60 frames = 1 second). Default duration is 2 frames if not specified.
 """
+
+            # Log prompt statistics for token optimization tracking
+            prompt_words = len(prompt.split())
+            prompt_chars = len(prompt)
+            estimated_tokens = prompt_words * 1.3  # Rough estimation: 1 token ≈ 0.75 words
+            print(f"📊 Prompt Stats: {prompt_chars} chars, {prompt_words} words, ~{estimated_tokens:.0f} tokens (estimated)")
 
             # Define tools (including both press_button and update_notepad)
             tools = [

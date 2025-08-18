@@ -144,6 +144,29 @@ All settings stored in SQLite database via Django models:
 - API keys: Entered securely via web interface
 - All settings persist in SQLite database
 
+## Prompt Optimization System
+
+### Optimized LLM Communication
+The system uses a **highly optimized prompt template** for efficient LLM communication:
+
+- **Token Reduction**: ~906 tokens (down from ~1,200+ tokens) = **25% reduction**
+- **File-based Templates**: `data/prompt_template.txt` with hot-reload capability
+- **Dynamic Context**: Spatial awareness and game state injected dynamically
+- **Cost Optimization**: Fewer tokens = faster responses and lower API costs
+
+### Template Variables
+```
+{spatial_context}     - Dynamic location and navigation info
+{recent_actions}      - Player's recent button presses  
+{direction_guidance}  - Movement suggestions and context
+{notepad_content}     - Long-term memory and game progress
+```
+
+### Hot-Reload Support
+- Template changes detected automatically
+- No service restart required for prompt updates
+- Real-time prompt optimization during development
+
 ## AI Service Architecture
 
 ### AIGameService (`dashboard/ai_game_service.py`)

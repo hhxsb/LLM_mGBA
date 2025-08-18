@@ -24,12 +24,7 @@ class PokemonRedPromptTemplate(BasePromptTemplate):
         """Get the default Pokemon Red prompt template."""
         return """You are an AI playing Pokémon Red, you are the character with the white hair. The name is GEMINI. Look at the screenshot(s) provided and choose button(s) to press.
 
-## Current Location
-You are in {current_map}
-Position: X={player_x}, Y={player_y}
-
-## Current Direction
-You are facing: {player_direction}
+{spatial_context}
 
 ## Controls:
 - A: To talk to people or interact with objects or advance text (NOT for entering/exiting buildings)
@@ -169,9 +164,28 @@ IMPORTANT: After each significant change (entering new area, talking to someone,
             'map_id': str(game_state.map_id)
         })
         
+        # Create spatial context for Pokemon Red
+        current_map = kwargs.get('current_map', f'Unknown Area (Map ID: {game_state.map_id})')
+        spatial_context = f"""## Current Location & Spatial Awareness
+You are in {current_map}
+Position: X={game_state.player_x}, Y={game_state.player_y}
+Direction: {game_state.player_direction}
+Map ID: {game_state.map_id}
+
+**IMPORTANT: Use these coordinates for intelligent navigation!**
+- Lower X values = LEFT, Higher X values = RIGHT
+- Lower Y values = UP, Higher Y values = DOWN
+- **CRITICAL MOVEMENT MECHANICS**: 
+  * **Turning**: 2 frames changes facing direction (no coordinate movement)
+  * **Moving**: 30 frames moves 1 coordinate unit (only if already facing that direction)
+  * **Total movement**: Turn (2 frames) + Move (30×units frames) if changing direction
+  * **Same direction**: Just 30×units frames if already facing the right way"""
+        
+        variables['spatial_context'] = spatial_context
+        
         # Ensure all required variables have defaults
         defaults = {
-            'current_map': f'Unknown Area (Map ID: {game_state.map_id})',
+            'current_map': current_map,
             'recent_actions': 'No recent actions.',
             'direction_guidance': '',
             'notepad_content': 'No notes available.',
