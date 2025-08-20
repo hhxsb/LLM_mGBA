@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     # 'channels',  # Temporarily disabled
     # 'rest_framework',  # Temporarily disabled
     # Local apps
+    'core',        # Memory system initialization
     'dashboard',
     # 'api',  # Temporarily disabled
 ]

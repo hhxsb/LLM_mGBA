@@ -99,12 +99,17 @@ emulator/
 
 data/
 ├── screenshots/                   # Game screenshots
-└── knowledge_graph.json           # AI memory system (legacy)
+├── knowledge_graph.json           # AI memory system (legacy)
+├── prompt_template.txt             # Optimized prompt template
+└── notepad.txt                     # Simple text-based memory
 
-core/                              # Shared utilities
-├── base_knowledge_system.py       # Knowledge management
-├── base_game_controller.py        # Game controller base
-└── screen_capture.py              # Screenshot utilities
+ai_gba_player/core/                # Enhanced memory system
+└── graphiti_memory.py             # Graphiti-based autonomous learning
+
+core/                              # Legacy utilities (not used)
+├── base_knowledge_system.py       # Knowledge management (legacy)
+├── base_game_controller.py        # Game controller base (legacy)
+└── screen_capture.py              # Screenshot utilities (legacy)
 
 games/pokemon_red/                 # Game-specific modules (extensible)
 ├── controller.py                  # Pokemon Red controller
@@ -143,6 +148,58 @@ All settings stored in SQLite database via Django models:
 - mGBA path: Auto-detected or set via web interface  
 - API keys: Entered securely via web interface
 - All settings persist in SQLite database
+
+## Graphiti Memory System (NEW FEATURE)
+
+### Autonomous Learning & Memory
+The AI GBA Player now includes an advanced **Graphiti-powered memory system** that enables:
+
+**🎯 Autonomous Objective Discovery**: AI analyzes its own responses to discover new goals
+- "I need to find the Pokemon Center" → Creates "find Pokemon Center" objective
+- Auto-categorizes as main/side/exploration with priority scoring
+- Tracks discovery location and completion status
+
+**🧠 Strategy Learning**: Remembers what button patterns work in different situations
+- Records successful button sequences for specific contexts
+- Tracks success rates and usage frequency
+- Provides learned strategies in future similar situations
+
+**🏆 Achievement Tracking**: Automatically detects and records completed objectives
+- "I caught a Pikachu!" → Completes "catch electric Pokemon" objective
+- Maintains achievement history with completion times and locations
+- Creates prerequisite chains between related objectives
+
+**📊 Memory-Enhanced Prompts**: LLM receives contextual memory in every decision
+```
+## 🎯 Current Objectives:
+  🔥 Defeat Team Rocket leader (Priority: 9)
+  ⭐ Find Pokemon Center to heal team (Priority: 6)
+
+## 🧠 Learned Strategies:
+  💡 talking to npc: [A, A, B] (Success: 85.7%)
+  💡 navigating menu: [START, UP, A] (Success: 92.3%)
+```
+
+### Installation & Configuration
+```bash
+# Full Graphiti support (recommended)
+pip install graphiti-ai>=0.3.0 neo4j>=5.0.0
+
+# Auto-fallback if unavailable
+# System uses SimpleMemorySystem automatically
+```
+
+### Architecture Integration
+- **Memory Discovery**: `ai_gba_player/dashboard/ai_game_service.py` analyzes AI responses
+- **Context Enhancement**: `ai_gba_player/dashboard/llm_client.py` injects memory into prompts  
+- **Knowledge Storage**: `ai_gba_player/core/graphiti_memory.py` manages Graphiti/Neo4j
+- **Template Integration**: `data/prompt_template.txt` includes `{memory_context}` variable
+
+### Benefits
+- **Self-improving AI**: Gets better at games over time through learning
+- **Goal persistence**: Important objectives don't get forgotten
+- **Strategy reuse**: Successful patterns are remembered and applied
+- **Context awareness**: AI knows what it should be doing at any moment
 
 ## Prompt Optimization System
 

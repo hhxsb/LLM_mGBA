@@ -42,6 +42,8 @@ Your overall game goals are: 1. Beat the Elite Four and become champion. 2. Coll
 ## Long-term Memory (Game State):
 {notepad_content}
 
+{memory_context}
+
 IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are.
 
 ## 🎬 Visual Analysis:

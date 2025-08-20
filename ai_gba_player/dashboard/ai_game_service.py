@@ -9,7 +9,6 @@ import socket
 import time
 import json
 import os
-import sys
 import traceback
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -22,6 +21,10 @@ from asgiref.sync import async_to_sync
 from .models import Configuration
 from .llm_client import LLMClient
 from .game_detector import get_game_detector
+
+# Memory service will be imported when Django is ready
+MEMORY_SERVICE_AVAILABLE = False
+_memory_service_functions = {}
 
 
 class AIGameService(threading.Thread):
@@ -69,6 +72,10 @@ class AIGameService(threading.Thread):
         self.recent_actions = []
         self.max_recent_actions = 10
         
+        # Memory system (initialize when needed)
+        self.memory_system = None
+        self._initialize_memory_system()
+        
         # Game state tracking
         self.player_direction = "UNKNOWN"
         self.player_x = 0
@@ -88,6 +95,35 @@ class AIGameService(threading.Thread):
         self._initialize_notepad()
         
         print(f"🎮 AIGameService initialized - will listen on {self.host}:{self.port}")
+    
+    def _initialize_memory_system(self):
+        """Initialize memory system when Django apps are ready"""
+        try:
+            from django.apps import apps
+            if apps.ready:
+                from core.memory_service import get_global_memory_system
+                self.memory_system = get_global_memory_system()
+                if self.memory_system:
+                    print("🧠 AI Service: Connected to global memory system")
+                else:
+                    print("⚠️ AI Service: Global memory system unavailable")
+                global MEMORY_SERVICE_AVAILABLE, _memory_service_functions
+                MEMORY_SERVICE_AVAILABLE = True
+                # Import memory functions
+                from core.memory_service import (
+                    discover_objective, complete_objective, learn_strategy, get_memory_context
+                )
+                _memory_service_functions.update({
+                    'discover_objective': discover_objective,
+                    'complete_objective': complete_objective,
+                    'learn_strategy': learn_strategy,
+                    'get_memory_context': get_memory_context
+                })
+            else:
+                print("⚠️ AI Service: Django apps not ready yet, memory system unavailable")
+        except Exception as e:
+            print(f"⚠️ AI Service: Memory system initialization failed: {e}")
+            self.memory_system = None
     
     def run(self):
         """Main thread execution - start socket server and handle connections"""
@@ -500,6 +536,10 @@ class AIGameService(threading.Thread):
                 
                 # Send button sequence to mGBA  
                 self._send_button_sequence(actions_to_send, durations_to_send)
+            
+            # Process memory system updates (objective discovery, strategy learning)
+            if self.memory_system:
+                self._process_memory_updates(ai_response, game_state, actions_to_send)
             
             self.decision_count += 1
             
@@ -953,6 +993,159 @@ class AIGameService(threading.Thread):
         # Request next screenshot after a delay
         time.sleep(2)
         self._request_screenshot()
+    
+    def _process_memory_updates(self, ai_response: Dict[str, Any], game_state: Dict[str, Any], actions_taken: list):
+        """Process AI response for autonomous objective discovery and strategy learning"""
+        if not self.memory_system:
+            return
+        
+        try:
+            ai_text = ai_response.get("text", "").lower()
+            current_location = self._get_current_location_description(game_state)
+            
+            # 1. OBJECTIVE DISCOVERY - Look for AI mentioning goals or tasks
+            self._discover_objectives_from_ai_text(ai_text, current_location)
+            
+            # 2. ACHIEVEMENT DETECTION - Check if AI completed something important
+            self._detect_achievements_from_ai_text(ai_text, current_location)
+            
+            # 3. STRATEGY LEARNING - Record what button patterns work
+            self._learn_strategy_from_actions(ai_text, actions_taken, game_state)
+            
+        except Exception as e:
+            print(f"⚠️ Memory system update error: {e}")
+    
+    def _discover_objectives_from_ai_text(self, ai_text: str, location: str):
+        """Analyze AI text for new objective discovery"""
+        objective_keywords = [
+            # Discovery patterns
+            ("i need to", "task"),
+            ("i should", "task"), 
+            ("my goal is", "main"),
+            ("i want to", "goal"),
+            ("let me", "action"),
+            # Pokemon-specific objectives
+            ("catch", "collection"),
+            ("find", "exploration"),
+            ("battle", "combat"),
+            ("heal", "maintenance"),
+            ("explore", "exploration"),
+            ("gym", "main"),
+            ("pokecenter", "maintenance"),
+            ("pokemart", "shopping"),
+            # NPC interactions
+            ("talk to", "social"),
+            ("speak with", "social"),
+            ("visit", "exploration")
+        ]
+        
+        for keyword, category in objective_keywords:
+            if keyword in ai_text and len(ai_text.split(keyword)[1]) > 5:  # Make sure there's context after keyword
+                objective_text = ai_text.split(keyword)[1].split('.')[0]  # Get text until next sentence
+                if len(objective_text.strip()) > 10:  # Ensure meaningful objective
+                    full_objective = f"{keyword}{objective_text}".strip()
+                    
+                    # Determine priority based on category
+                    priority_map = {"main": 9, "combat": 8, "collection": 7, "task": 6, "goal": 6, 
+                                  "exploration": 5, "social": 4, "maintenance": 3, "shopping": 2, "action": 5}
+                    priority = priority_map.get(category, 5)
+                    
+                    objective_id = ""
+                    if MEMORY_SERVICE_AVAILABLE and 'discover_objective' in _memory_service_functions:
+                        objective_id = _memory_service_functions['discover_objective'](
+                            description=full_objective,
+                            location=location,
+                            category=category,
+                            priority=priority
+                        )
+                    
+                    if objective_id:
+                        print(f"🎯 Discovered objective: {full_objective}")
+                        self._send_chat_message("system", f"🧠 Discovered new objective: {full_objective}")
+                        break  # Only discover one objective per AI response
+    
+    def _detect_achievements_from_ai_text(self, ai_text: str, location: str):
+        """Detect completed achievements from AI text"""
+        completion_keywords = [
+            "caught", "defeated", "completed", "finished", "won", "obtained", 
+            "got", "found", "reached", "arrived", "healed", "bought"
+        ]
+        
+        for keyword in completion_keywords:
+            if keyword in ai_text:
+                # Look for objectives that might be completed
+                if MEMORY_SERVICE_AVAILABLE and self.memory_system:
+                    current_objectives = self.memory_system.get_current_objectives()
+                    for objective in current_objectives:
+                        # Simple keyword matching - could be enhanced with NLP
+                        if any(word in objective.description.lower() for word in ai_text.split() if len(word) > 3):
+                            success = False
+                            if MEMORY_SERVICE_AVAILABLE and 'complete_objective' in _memory_service_functions:
+                                success = _memory_service_functions['complete_objective'](objective.id, location)
+                            if success:
+                                print(f"✅ Completed objective: {objective.description}")
+                                self._send_chat_message("system", f"🏆 Achievement unlocked: {objective.description}")
+                                break
+    
+    def _learn_strategy_from_actions(self, ai_text: str, actions: list, game_state: Dict[str, Any]):
+        """Learn strategies from successful action patterns"""
+        if not actions:
+            return
+        
+        # Determine situation context
+        situation_context = self._get_situation_context(ai_text, game_state)
+        
+        # Assume success if AI didn't mention failure
+        success = not any(fail_word in ai_text for fail_word in ['stuck', 'failed', 'error', 'wrong', 'mistake'])
+        
+        # Record strategy
+        strategy_id = ""
+        if MEMORY_SERVICE_AVAILABLE and 'learn_strategy' in _memory_service_functions:
+            strategy_id = _memory_service_functions['learn_strategy'](
+                situation=situation_context,
+                button_sequence=actions,
+                success=success,
+                context={
+                    "location": self._get_current_location_description(game_state),
+                    "direction": game_state.get("direction", "UNKNOWN"),
+                    "map_id": game_state.get("position", {}).get("map_id", 0)
+                }
+            )
+        
+        if strategy_id and success:
+            print(f"🧠 Learned strategy: {situation_context} → {actions}")
+    
+    def _get_situation_context(self, ai_text: str, game_state: Dict[str, Any]) -> str:
+        """Extract situation context from AI text and game state"""
+        # Simple context extraction based on common game situations
+        context_patterns = {
+            "talking to npc": ["talk", "speak", "npc", "person"],
+            "in battle": ["battle", "fight", "attack", "pokemon"],
+            "navigating menu": ["menu", "select", "choose", "option"],
+            "moving around": ["move", "go", "walk", "explore"],
+            "interacting with object": ["interact", "examine", "use", "press a"],
+            "in pokemon center": ["heal", "pokemon center", "pokecenter"],
+            "shopping": ["buy", "shop", "mart", "pokemart"]
+        }
+        
+        for situation, keywords in context_patterns.items():
+            if any(keyword in ai_text for keyword in keywords):
+                return situation
+        
+        # Default context based on location
+        location = self._get_current_location_description(game_state)
+        return f"general gameplay in {location}"
+    
+    def _get_current_location_description(self, game_state: Dict[str, Any]) -> str:
+        """Get human-readable location description"""
+        position = game_state.get("position", {})
+        map_id = position.get("map_id", 0)
+        x = position.get("x", 0)
+        y = position.get("y", 0)
+        
+        # Use existing map name function if available
+        map_name = getattr(self, '_get_map_name', lambda mid: f"Map {mid}")(map_id)
+        return f"{map_name} ({x}, {y})"
     
     def _update_position_tracking(self, x: int, y: int, direction: str, map_id: int):
         """Update position tracking for movement pattern analysis"""

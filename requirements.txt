@@ -8,3 +8,5 @@ psutil>=5.9.0
 django>=4.2.0
 channels>=4.0.0
 channels-redis>=4.1.0
+graphiti-core>=0.18.0
+neo4j>=5.0.0

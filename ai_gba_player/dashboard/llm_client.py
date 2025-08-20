@@ -14,6 +14,9 @@ from pathlib import Path
 import PIL.Image
 from PIL import ImageEnhance
 
+# Memory service will be imported when Django is ready
+MEMORY_SERVICE_AVAILABLE = False
+
 
 class LLMClient:
     """Client for making LLM API calls with robust error handling"""
@@ -33,8 +36,31 @@ class LLMClient:
         self.template_last_modified = 0
         self._load_prompt_template()
         
+        # Memory system for enhanced context (initialize when needed)
+        self.memory_system = None
+        self._initialize_memory_system()
+        
         # Initialize provider-specific clients
         self._init_clients()
+    
+    def _initialize_memory_system(self):
+        """Initialize memory system when Django apps are ready"""
+        try:
+            from django.apps import apps
+            if apps.ready:
+                from core.memory_service import get_global_memory_system
+                self.memory_system = get_global_memory_system()
+                if self.memory_system:
+                    print("🧠 LLM Client: Connected to global memory system")
+                else:
+                    print("⚠️ LLM Client: Global memory system unavailable")
+                global MEMORY_SERVICE_AVAILABLE
+                MEMORY_SERVICE_AVAILABLE = True
+            else:
+                print("⚠️ LLM Client: Django apps not ready yet, memory system unavailable")
+        except Exception as e:
+            print(f"⚠️ LLM Client: Memory system initialization failed: {e}")
+            self.memory_system = None
     
     def _init_clients(self):
         """Initialize LLM provider clients"""
@@ -138,6 +164,9 @@ class LLMClient:
         # Read notepad content
         notepad_content = self._read_notepad()
         
+        # Get memory context from Graphiti
+        memory_context = self._get_memory_context(current_map, x, y, direction, map_id)
+        
         # Generate spatial context
         spatial_context = self._create_spatial_context(current_map, x, y, direction, map_id)
         
@@ -154,7 +183,8 @@ class LLMClient:
                 spatial_context=spatial_context,
                 recent_actions=recent_actions_text,
                 direction_guidance=direction_guidance,
-                notepad_content=notepad_content
+                notepad_content=notepad_content,
+                memory_context=memory_context
             )
         except KeyError as e:
             print(f"⚠️ Missing template variable {e}, using fallback context")
@@ -169,6 +199,8 @@ class LLMClient:
 
 ## Long-term Memory (Game State):
 {notepad_content}
+
+{memory_context}
 
 IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are."""
         
@@ -781,6 +813,75 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
             print("📝 Notepad updated")
         except Exception as e:
             print(f"❌ Error updating notepad: {e}")
+    
+    def _get_memory_context(self, current_map: str, x: int, y: int, direction: str, map_id: int) -> str:
+        """Get memory context from global memory service"""
+        if not MEMORY_SERVICE_AVAILABLE:
+            return ""
+        
+        try:
+            # Get current situation for context
+            current_situation = f"at {current_map} ({x}, {y}) facing {direction}"
+            
+            # Get memory context from global service
+            from core.memory_service import get_memory_context
+            memory_data = get_memory_context(current_situation)
+            
+            # Format memory context for LLM
+            memory_lines = []
+            
+            # Current objectives
+            if memory_data.get("current_objectives"):
+                memory_lines.append("## 🎯 Current Objectives:")
+                for obj in memory_data["current_objectives"]:
+                    priority_emoji = "🔥" if obj["priority"] >= 8 else "⭐" if obj["priority"] >= 6 else "📋"
+                    memory_lines.append(f"  {priority_emoji} {obj['description']} (Priority: {obj['priority']})")
+                    if obj.get("location_discovered"):
+                        memory_lines.append(f"     📍 Discovered at: {obj['location_discovered']}")
+                memory_lines.append("")
+            
+            # Recent achievements
+            if memory_data.get("recent_achievements"):
+                memory_lines.append("## 🏆 Recent Achievements:")
+                for ach in memory_data["recent_achievements"]:
+                    memory_lines.append(f"  ✅ {ach['title']} (Completed: {ach['completed_at']})")
+                    if ach.get("location"):
+                        memory_lines.append(f"     📍 Completed at: {ach['location']}")
+                memory_lines.append("")
+            
+            # Relevant strategies
+            if memory_data.get("relevant_strategies"):
+                memory_lines.append("## 🧠 Learned Strategies:")
+                for strat in memory_data["relevant_strategies"]:
+                    buttons_str = " → ".join(strat["buttons"])
+                    memory_lines.append(f"  💡 {strat['situation']}: [{buttons_str}]")
+                    memory_lines.append(f"     📊 Success rate: {strat['success_rate']} (Used {strat['times_used']} times)")
+                memory_lines.append("")
+            
+            # Discovery suggestions
+            if memory_data.get("discovery_suggestions"):
+                memory_lines.append("## 💭 Discovery Tips:")
+                for suggestion in memory_data["discovery_suggestions"]:
+                    memory_lines.append(f"  💡 {suggestion}")
+                memory_lines.append("")
+            
+            # Get stats for additional context
+            if MEMORY_SERVICE_AVAILABLE:
+                from core.memory_service import get_memory_stats
+                stats = get_memory_stats()
+                if stats.get("active_objectives", 0) > 0 or stats.get("learned_strategies", 0) > 0:
+                    memory_lines.append("## 📊 Memory Stats:")
+                    memory_lines.append(f"  Active objectives: {stats.get('active_objectives', 0)}")
+                    memory_lines.append(f"  Achievements: {stats.get('completed_achievements', 0)}")
+                    memory_lines.append(f"  Learned strategies: {stats.get('learned_strategies', 0)}")
+                    if stats.get("avg_strategy_success", 0) > 0:
+                        memory_lines.append(f"  Average strategy success: {stats['avg_strategy_success']:.1%}")
+            
+            return "\n".join(memory_lines) if memory_lines else ""
+            
+        except Exception as e:
+            print(f"⚠️ Error getting memory context: {e}")
+            return "## 🧠 Memory System: Temporarily unavailable"
     
     def _fallback_response(self, context: str, error: str = None) -> Dict[str, Any]:
         """Generate fallback response when AI fails"""
