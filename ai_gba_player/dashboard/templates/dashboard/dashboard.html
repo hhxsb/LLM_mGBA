@@ -54,6 +54,14 @@
                     🛠️ Admin Panel
                 </a>
             </div>
+            
+            <div class="action-card">
+                <h3>🧠 LLM Session</h3>
+                <p>Reset AI conversation memory</p>
+                <button onclick="resetLLMSession()" class="action-btn warning">
+                    🔄 Reset LLM Session
+                </button>
+            </div>
         </div>
     </div>
 
@@ -308,6 +316,46 @@ async function restartService() {
     }
 }
 
+async function resetLLMSession() {
+    try {
+        // Show loading state
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '⏳ Resetting...';
+        button.disabled = true;
+        
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        const response = await fetch('/api/reset-llm-session/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(result.message, 'success');
+            // Flash the button to show success
+            button.innerHTML = '✅ Reset!';
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 2000);
+        } else {
+            showNotification(result.message, 'error');
+            button.innerHTML = originalText;
+            button.disabled = false;
+        }
+    } catch (error) {
+        showNotification('Failed to reset LLM session: ' + error.message, 'error');
+        button.innerHTML = '🔄 Reset LLM Session';
+        button.disabled = false;
+    }
+}
+
 function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
@@ -422,6 +470,14 @@ function showNotification(message, type) {
 
 .action-btn.success:hover {
     background: #138496;
+}
+
+.action-btn.warning {
+    background: #fd7e14;
+}
+
+.action-btn.warning:hover {
+    background: #e55100;
 }
 
 .status {

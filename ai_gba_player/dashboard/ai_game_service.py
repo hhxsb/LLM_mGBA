@@ -161,6 +161,23 @@ class AIGameService(threading.Thread):
         
         self._send_chat_message("system", "⏸️ AI Service stopped")
     
+    def reset_llm_session(self):
+        """Reset the LLM session to clear any conversation history"""
+        print("🔄 Resetting LLM session...")
+        
+        if self.llm_client:
+            self.llm_client.reset_session()
+            self._send_chat_message("system", "🔄 LLM session reset - starting fresh!")
+        else:
+            print("⚠️ No LLM client to reset")
+            self._send_chat_message("system", "⚠️ No LLM client active to reset")
+        
+        # Also clear recent actions to start fresh
+        self.recent_actions = []
+        self.decision_count = 0
+        
+        print("✅ LLM session reset completed")
+    
     def _setup_socket_server(self):
         """Set up the socket server for mGBA communication"""
         try:

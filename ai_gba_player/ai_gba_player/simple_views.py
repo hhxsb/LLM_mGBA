@@ -149,6 +149,7 @@ def dashboard_view(request):
                         <input type="number" id="cooldown" value="COOLDOWN_PLACEHOLDER" min="1" max="10">
                     </div>
                     <button class="btn btn-outline" onclick="saveAIConfig()">💾 Save AI Config</button>
+                    <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
                 </div>
             </div>
         </div>
@@ -480,6 +481,18 @@ def dashboard_view(request):
             }
         }
         
+        function resetLLMSession() {
+            fetch('/api/reset-llm-session/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+            })
+            .then(response => response.json())
+            .then(data => {
+                addSystemMessage(data.message);
+            })
+            .catch(error => addSystemMessage('Error resetting LLM session: ' + error.message));
+        }
+        
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -646,6 +659,37 @@ def stop_service(request):
         return JsonResponse({
             'success': False,
             'message': f'❌ Error: {str(e)}'
+        })
+
+def reset_llm_session(request):
+    """Reset the LLM session to clear conversation history"""
+    try:
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        
+        from dashboard.ai_game_service import get_ai_service
+        
+        # Get the current AI service instance
+        ai_service = get_ai_service()
+        if ai_service:
+            ai_service.reset_llm_session()
+            return JsonResponse({
+                'success': True,
+                'message': '🔄 LLM session reset - fresh start!'
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': '❌ No AI service running to reset'
+            })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'❌ Error resetting session: {str(e)}'
         })
 
 def get_chat_messages(request):

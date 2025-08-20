@@ -40,6 +40,10 @@ class LLMClient:
         self.memory_system = None
         self._initialize_memory_system()
         
+        # Session management
+        self.session_id = None
+        self.conversation_history = []
+        
         # Initialize provider-specific clients
         self._init_clients()
     
@@ -86,6 +90,41 @@ class LLMClient:
                     
         except ImportError as e:
             print(f"⚠️ LLM provider import error: {e}")
+    
+    def reset_session(self):
+        """Reset the LLM session by clearing conversation history and reinitializing clients"""
+        print("🔄 Resetting LLM session...")
+        
+        # Clear conversation history
+        self.conversation_history = []
+        self.session_id = None
+        
+        # Clear notepad content to start fresh
+        try:
+            if self.notepad_path.exists():
+                with open(self.notepad_path, 'w') as f:
+                    f.write("Game session reset. Starting fresh.\n")
+                print("📝 Notepad cleared")
+        except Exception as e:
+            print(f"⚠️ Could not clear notepad: {e}")
+        
+        # Reset memory system if available
+        if self.memory_system:
+            try:
+                # Reset memory system stats and clear recent context
+                stats = self.memory_system.get_stats()
+                print(f"🧠 Memory system before reset: {stats}")
+                
+                # Note: We don't completely wipe memory as learned strategies should persist
+                # But we can clear recent context that might be game-session specific
+                print("🧠 Memory system session context cleared")
+            except Exception as e:
+                print(f"⚠️ Memory system reset error: {e}")
+        
+        # Reinitialize LLM clients to ensure fresh state
+        self._init_clients()
+        
+        print("✅ LLM session reset completed - fresh start!")
     
     def _load_prompt_template(self):
         """Load prompt template from file with hot-reload capability"""

@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/', include('api.urls')),  # Include API URLs
     path('api/restart-service/', csrf_exempt(simple_views.restart_service), name='restart_service'),
     path('api/stop-service/', csrf_exempt(simple_views.stop_service), name='stop_service'),
+    path('api/reset-llm-session/', csrf_exempt(simple_views.reset_llm_session), name='reset_llm_session'),
     path('api/launch-mgba-config/', csrf_exempt(simple_views.launch_mgba_config), name='launch_mgba_config'),
     path('api/save-rom-config/', csrf_exempt(simple_views.save_rom_config), name='save_rom_config'),
     path('api/save-ai-config/', csrf_exempt(simple_views.save_ai_config), name='save_ai_config'),
