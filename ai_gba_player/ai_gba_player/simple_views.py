@@ -25,7 +25,12 @@ def load_config():
         'mgba_path': '',
         'llm_provider': 'gemini',
         'api_key': '',
-        'cooldown': 3
+        'cooldown': 3,
+        'base_stabilization': 0.5,
+        'movement_multiplier': 0.8,
+        'interaction_multiplier': 0.6,
+        'menu_multiplier': 0.4,
+        'max_wait_time': 10.0
     }
 
 def save_config_to_file(config):
@@ -48,6 +53,13 @@ def dashboard_view(request):
     api_key = config.get('api_key', '')
     cooldown = config.get('cooldown', 3)
     provider = config.get('llm_provider', 'gemini')
+    
+    # Timing configuration
+    base_stabilization = config.get('base_stabilization', 0.5)
+    movement_multiplier = config.get('movement_multiplier', 0.8)
+    interaction_multiplier = config.get('interaction_multiplier', 0.6)
+    menu_multiplier = config.get('menu_multiplier', 0.4)
+    max_wait_time = config.get('max_wait_time', 10.0)
     
     # Provider options
     gemini_selected = 'selected' if provider == 'gemini' else ''
@@ -100,6 +112,18 @@ def dashboard_view(request):
         .controls-row { display: flex; gap: 10px; }
         .control-btn { padding: 8px 12px; border: 1px solid #d1d5db; background: white; border-radius: 6px; font-size: 12px; cursor: pointer; }
         .control-btn:hover { background: #f9fafb; }
+        .notepad-display { border: 1px solid #e1e8ed; border-radius: 6px; background: #f8f9fa; overflow: hidden; }
+        .notepad-header { background: #6366f1; color: white; padding: 8px 12px; display: flex; justify-content: space-between; font-size: 11px; }
+        .notepad-status { font-weight: 500; }
+        .entry-count { opacity: 0.8; }
+        .notepad-content { max-height: 180px; overflow-y: auto; padding: 8px; font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; line-height: 1.4; }
+        .notepad-entry { background: white; border: 1px solid #e1e8ed; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; }
+        .notepad-entry:last-child { margin-bottom: 0; }
+        .notepad-entry-header { color: #6366f1; font-weight: 600; margin-bottom: 2px; }
+        .notepad-entry-content { color: #374151; white-space: pre-wrap; }
+        .notepad-entry.new { background: #fef3cd; border-color: #f59e0b; animation: highlight 2s ease-out; }
+        .notepad-empty { color: #6b7280; text-align: center; padding: 20px; font-style: italic; }
+        @keyframes highlight { from { background: #fbbf24; } to { background: #fef3cd; } }
     </style>
 </head>
 <body>
@@ -148,8 +172,53 @@ def dashboard_view(request):
                         <label>Decision Cooldown (seconds)</label>
                         <input type="number" id="cooldown" value="COOLDOWN_PLACEHOLDER" min="1" max="10">
                     </div>
+                    
+                    <details style="margin: 15px 0; border: 1px solid #e1e8ed; border-radius: 6px;">
+                        <summary style="padding: 10px; cursor: pointer; background: #f8f9fa; font-weight: 500;">⏱️ Advanced Timing Settings</summary>
+                        <div style="padding: 10px;">
+                            <div class="form-group">
+                                <label>Base Stabilization (seconds)</label>
+                                <input type="number" id="base-stabilization" value="BASE_STABILIZATION_PLACEHOLDER" min="0.1" max="2.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Minimum wait time for game state to stabilize</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Movement Delay (seconds)</label>
+                                <input type="number" id="movement-multiplier" value="MOVEMENT_MULTIPLIER_PLACEHOLDER" min="0.1" max="1.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for movement actions (UP/DOWN/LEFT/RIGHT)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Interaction Delay (seconds)</label>
+                                <input type="number" id="interaction-multiplier" value="INTERACTION_MULTIPLIER_PLACEHOLDER" min="0.1" max="1.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for interaction actions (A/B buttons)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Menu Delay (seconds)</label>
+                                <input type="number" id="menu-multiplier" value="MENU_MULTIPLIER_PLACEHOLDER" min="0.2" max="2.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for menu actions (START/SELECT)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Maximum Wait Time (seconds)</label>
+                                <input type="number" id="max-wait-time" value="MAX_WAIT_TIME_PLACEHOLDER" min="1" max="10" step="0.5">
+                                <small style="color: #6b7280; font-size: 11px;">Maximum total wait time regardless of actions</small>
+                            </div>
+                        </div>
+                    </details>
+                    
                     <button class="btn btn-outline" onclick="saveAIConfig()">💾 Save AI Config</button>
                     <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
+                </div>
+                <div class="config-section">
+                    <h3>📝 AI Memory Log</h3>
+                    <div class="notepad-display" id="notepad-display">
+                        <div class="notepad-header">
+                            <span class="notepad-status" id="notepad-status">No updates yet</span>
+                            <span class="entry-count" id="entry-count">0 entries</span>
+                        </div>
+                        <div class="notepad-content" id="notepad-content">
+                            <div class="notepad-empty">Waiting for AI memory updates...</div>
+                        </div>
+                        <button class="btn btn-outline" onclick="clearNotepad()" style="background: #dc2626; color: white; margin-top: 8px; font-size: 11px; padding: 6px 12px;">🗑️ Clear Notepad</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -182,6 +251,8 @@ def dashboard_view(request):
         let lastMessageCount = 0;
         let lastProcessedMessageId = 0;  // Track last processed message ID
         let pollingInterval = null;
+        let lastNotepadUpdate = null;  // Track last notepad update time
+        let lastEntryCount = 0;  // Track entry count for change detection
         
         // Start polling for messages when page loads
         document.addEventListener('DOMContentLoaded', function() {
@@ -193,8 +264,13 @@ def dashboard_view(request):
                 clearInterval(pollingInterval);
             }
             
-            pollingInterval = setInterval(pollForMessages, 2000); // Poll every 2 seconds
+            pollingInterval = setInterval(() => {
+                pollForMessages();
+                pollForNotepadUpdates();
+            }, 2000); // Poll every 2 seconds
+            
             pollForMessages(); // Initial poll
+            pollForNotepadUpdates(); // Initial notepad poll
         }
         
         function pollForMessages() {
@@ -236,6 +312,62 @@ def dashboard_view(request):
                 .catch(error => {
                     console.error('Error polling messages:', error);
                 });
+        }
+        
+        function pollForNotepadUpdates() {
+            fetch('/api/notepad-content/')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updateNotepadDisplay(data);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling notepad:', error);
+                    document.getElementById('notepad-status').textContent = 'Error loading';
+                });
+        }
+        
+        function updateNotepadDisplay(data) {
+            const statusEl = document.getElementById('notepad-status');
+            const countEl = document.getElementById('entry-count');
+            const contentEl = document.getElementById('notepad-content');
+            
+            // Update status and count
+            statusEl.textContent = `Last: ${data.last_updated}`;
+            countEl.textContent = `${data.entry_count} entries`;
+            
+            // Check if there are new entries
+            const hasNewEntries = data.entry_count > lastEntryCount;
+            lastEntryCount = data.entry_count;
+            
+            // Display recent entries
+            if (data.recent_entries && data.recent_entries.length > 0) {
+                let entriesHtml = '';
+                data.recent_entries.forEach((entry, index) => {
+                    const lines = entry.split('\\n');
+                    const header = lines[0]; // ## Update timestamp
+                    const content = lines.slice(1).join('\\n').trim();
+                    
+                    const isNew = hasNewEntries && index === data.recent_entries.length - 1;
+                    const newClass = isNew ? ' new' : '';
+                    
+                    entriesHtml += `
+                        <div class="notepad-entry${newClass}">
+                            <div class="notepad-entry-header">${header}</div>
+                            <div class="notepad-entry-content">${content}</div>
+                        </div>
+                    `;
+                });
+                contentEl.innerHTML = entriesHtml;
+                
+                // Auto-scroll to bottom if new entry
+                if (hasNewEntries) {
+                    contentEl.scrollTop = contentEl.scrollHeight;
+                }
+            } else {
+                contentEl.innerHTML = '<div class="notepad-empty">No memory updates yet...</div>';
+            }
         }
         
         function displayMessage(message) {
@@ -284,7 +416,7 @@ def dashboard_view(request):
             updateServiceStatus('🔄 Connecting...', 'starting');
             fetch('/api/restart-service/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+                headers: { 'Content-Type': 'application/json' }
             })
             .then(response => response.json())
             .then(data => {
@@ -306,7 +438,7 @@ def dashboard_view(request):
             updateServiceStatus('🔌 Disconnecting...', 'stopping');
             fetch('/api/stop-service/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+                headers: { 'Content-Type': 'application/json' }
             })
             .then(response => response.json())
             .then(data => {
@@ -327,7 +459,7 @@ def dashboard_view(request):
         function launchMGBA() {
             fetch('/api/launch-mgba-config/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+                headers: { 'Content-Type': 'application/json' }
             })
             .then(response => response.json())
             .then(data => addSystemMessage(data.message))
@@ -344,7 +476,6 @@ def dashboard_view(request):
             
             fetch('/api/save-rom-config/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') },
                 body: formData
             })
             .then(response => response.json())
@@ -359,14 +490,27 @@ def dashboard_view(request):
             const apiKey = document.getElementById('api-key').value;
             const cooldown = document.getElementById('cooldown').value;
             
+            // Get timing configuration values
+            const baseStabilization = document.getElementById('base-stabilization').value;
+            const movementMultiplier = document.getElementById('movement-multiplier').value;
+            const interactionMultiplier = document.getElementById('interaction-multiplier').value;
+            const menuMultiplier = document.getElementById('menu-multiplier').value;
+            const maxWaitTime = document.getElementById('max-wait-time').value;
+            
             const formData = new FormData();
             formData.append('llm_provider', provider);
             formData.append('api_key', apiKey);
             formData.append('cooldown', cooldown);
             
+            // Add timing configuration
+            formData.append('base_stabilization', baseStabilization);
+            formData.append('movement_multiplier', movementMultiplier);
+            formData.append('interaction_multiplier', interactionMultiplier);
+            formData.append('menu_multiplier', menuMultiplier);
+            formData.append('max_wait_time', maxWaitTime);
+            
             fetch('/api/save-ai-config/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') },
                 body: formData
             })
             .then(response => response.json())
@@ -484,13 +628,27 @@ def dashboard_view(request):
         function resetLLMSession() {
             fetch('/api/reset-llm-session/', {
                 method: 'POST',
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }
+                headers: { 'Content-Type': 'application/json' }
             })
             .then(response => response.json())
             .then(data => {
                 addSystemMessage(data.message);
             })
             .catch(error => addSystemMessage('Error resetting LLM session: ' + error.message));
+        }
+        
+        function clearNotepad() {
+            fetch('/api/clear-notepad/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                addSystemMessage(data.message);
+                // Immediately refresh notepad display
+                pollForNotepadUpdates();
+            })
+            .catch(error => addSystemMessage('Error clearing notepad: ' + error.message));
         }
         
         function getCookie(name) {
@@ -519,6 +677,13 @@ def dashboard_view(request):
     html_content = html_content.replace('GEMINI_SELECTED_PLACEHOLDER', gemini_selected)
     html_content = html_content.replace('OPENAI_SELECTED_PLACEHOLDER', openai_selected)
     html_content = html_content.replace('ANTHROPIC_SELECTED_PLACEHOLDER', anthropic_selected)
+    
+    # Replace timing configuration placeholders
+    html_content = html_content.replace('BASE_STABILIZATION_PLACEHOLDER', str(base_stabilization))
+    html_content = html_content.replace('MOVEMENT_MULTIPLIER_PLACEHOLDER', str(movement_multiplier))
+    html_content = html_content.replace('INTERACTION_MULTIPLIER_PLACEHOLDER', str(interaction_multiplier))
+    html_content = html_content.replace('MENU_MULTIPLIER_PLACEHOLDER', str(menu_multiplier))
+    html_content = html_content.replace('MAX_WAIT_TIME_PLACEHOLDER', str(max_wait_time))
     
     return HttpResponse(html_content)
 
@@ -690,6 +855,110 @@ def reset_llm_session(request):
         return JsonResponse({
             'success': False,
             'message': f'❌ Error resetting session: {str(e)}'
+        })
+
+def get_notepad_content(request):
+    """Get current notepad content for real-time display"""
+    try:
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        
+        # Read notepad file directly
+        notepad_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/notepad.txt")
+        
+        if notepad_path.exists():
+            with open(notepad_path, 'r') as f:
+                content = f.read()
+            
+            # Get file modification time
+            last_modified = notepad_path.stat().st_mtime
+            import datetime
+            last_updated = datetime.datetime.fromtimestamp(last_modified).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Count entries (lines starting with ##)
+            entry_count = content.count('## Update')
+            
+            # Get last 5 entries for display
+            lines = content.split('\n')
+            recent_entries = []
+            current_entry = []
+            
+            for line in lines:
+                if line.startswith('## Update') and current_entry:
+                    # Save previous entry
+                    recent_entries.append('\n'.join(current_entry))
+                    current_entry = [line]
+                elif line.startswith('## Update'):
+                    current_entry = [line]
+                elif current_entry:
+                    current_entry.append(line)
+            
+            # Add the last entry
+            if current_entry:
+                recent_entries.append('\n'.join(current_entry))
+            
+            # Keep only last 5 entries
+            recent_entries = recent_entries[-5:] if len(recent_entries) > 5 else recent_entries
+            
+            return JsonResponse({
+                'success': True,
+                'content': content,
+                'recent_entries': recent_entries,
+                'last_updated': last_updated,
+                'entry_count': entry_count
+            })
+        else:
+            return JsonResponse({
+                'success': True,
+                'content': "# Pokémon Red Game Progress\n\nGame just started. No progress recorded yet.",
+                'recent_entries': [],
+                'last_updated': 'Never',
+                'entry_count': 0
+            })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'❌ Error reading notepad: {str(e)}',
+            'content': '',
+            'recent_entries': [],
+            'last_updated': 'Error',
+            'entry_count': 0
+        })
+
+def clear_notepad(request):
+    """Clear the notepad content"""
+    try:
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        
+        # Clear notepad file
+        notepad_path = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/notepad.txt")
+        
+        # Create fresh notepad content
+        fresh_content = "# Pokémon Red Game Progress\n\nGame session reset. Starting fresh.\n"
+        
+        # Ensure directory exists
+        notepad_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(notepad_path, 'w') as f:
+            f.write(fresh_content)
+        
+        return JsonResponse({
+            'success': True,
+            'message': '🗑️ Notepad cleared - fresh memory!'
+        })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'❌ Error clearing notepad: {str(e)}'
         })
 
 def get_chat_messages(request):
@@ -865,6 +1134,13 @@ def save_ai_config(request):
         api_key = request.POST.get('api_key', '').strip()
         cooldown = int(request.POST.get('cooldown', '3'))
         
+        # Get timing configuration values
+        base_stabilization = float(request.POST.get('base_stabilization', '0.5'))
+        movement_multiplier = float(request.POST.get('movement_multiplier', '0.8'))
+        interaction_multiplier = float(request.POST.get('interaction_multiplier', '0.6'))
+        menu_multiplier = float(request.POST.get('menu_multiplier', '0.4'))
+        max_wait_time = float(request.POST.get('max_wait_time', '10.0'))
+        
         # Load existing config
         config = load_config()
         
@@ -873,19 +1149,34 @@ def save_ai_config(request):
         config['api_key'] = api_key
         config['cooldown'] = cooldown
         
+        # Update timing configuration
+        config['base_stabilization'] = base_stabilization
+        config['movement_multiplier'] = movement_multiplier
+        config['interaction_multiplier'] = interaction_multiplier
+        config['menu_multiplier'] = menu_multiplier
+        config['max_wait_time'] = max_wait_time
+        
         # Save configuration
         if save_config_to_file(config):
             # Also update the main config_emulator.json file
             success = _update_main_config_file(provider, api_key, cooldown)
+            
+            # Reload timing configuration in the running AI service
+            try:
+                from dashboard.ai_game_service import reload_ai_service_timing_config
+                reload_ai_service_timing_config()
+            except Exception as e:
+                print(f"Warning: Could not reload AI service timing config: {e}")
+            
             if success:
                 return JsonResponse({
                     'success': True,
-                    'message': f'AI configuration saved: {provider} provider with {cooldown}s cooldown'
+                    'message': f'AI configuration saved: {provider} provider with {cooldown}s cooldown + timing settings updated'
                 })
             else:
                 return JsonResponse({
                     'success': True,
-                    'message': f'Configuration saved locally. Warning: Could not update main config file.'
+                    'message': f'Configuration saved locally + timing settings updated. Warning: Could not update main config file.'
                 })
         else:
             return JsonResponse({

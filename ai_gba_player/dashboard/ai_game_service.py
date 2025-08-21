@@ -74,6 +74,9 @@ class AIGameService(threading.Thread):
         
         # Memory system (initialize when needed)
         self.memory_system = None
+        
+        # Screenshot timing configuration (AI service controls timing)
+        self.timing_config = self._load_timing_config()
         self._initialize_memory_system()
         
         # Game state tracking
@@ -177,6 +180,89 @@ class AIGameService(threading.Thread):
         self.decision_count = 0
         
         print("✅ LLM session reset completed")
+    
+    def _load_timing_config(self) -> dict:
+        """Load timing configuration from Django settings or config file"""
+        try:
+            # Try to load from Django configuration first (if available)
+            try:
+                from pathlib import Path
+                import json
+                
+                # Load from the same config file used by the web interface
+                config_file = Path('/tmp/ai_gba_player_config.json')
+                if config_file.exists():
+                    with open(config_file, 'r') as f:
+                        config = json.load(f)
+                        
+                    return {
+                        'base_stabilization': config.get('base_stabilization', 0.5),
+                        'movement_multiplier': config.get('movement_multiplier', 0.8),
+                        'interaction_multiplier': config.get('interaction_multiplier', 0.6),
+                        'menu_multiplier': config.get('menu_multiplier', 0.4),
+                        'max_wait_time': config.get('max_wait_time', 10.0)
+                    }
+            except Exception as e:
+                print(f"⚠️ Could not load timing config from file: {e}")
+                
+        except Exception as e:
+            print(f"⚠️ Error loading timing configuration: {e}")
+        
+        # Fallback to default values
+        return {
+            'base_stabilization': 0.5,      # Base time for game state to settle
+            'movement_multiplier': 0.8,     # Extra seconds per movement action
+            'interaction_multiplier': 0.6,  # Extra seconds per interaction  
+            'menu_multiplier': 0.4,         # Extra seconds per menu action
+            'max_wait_time': 10.0           # Maximum wait time safety cap
+        }
+    
+    def reload_timing_config(self):
+        """Reload timing configuration from updated settings"""
+        old_config = self.timing_config.copy()
+        self.timing_config = self._load_timing_config()
+        print(f"⚙️ Timing configuration reloaded: {self.timing_config}")
+        
+        # Log changes
+        for key, new_value in self.timing_config.items():
+            if key in old_config and old_config[key] != new_value:
+                print(f"   {key}: {old_config[key]} → {new_value}")
+    
+    def _calculate_screenshot_delay(self, actions: list, durations: list = None) -> float:
+        """Calculate optimal delay before taking screenshot based on action complexity"""
+        if not actions:
+            return self.timing_config['base_stabilization']
+        
+        # Start with base stabilization time
+        total_delay = self.timing_config['base_stabilization']
+        
+        # Add timing for each action based on type
+        for i, action in enumerate(actions):
+            # Get duration for this action (convert frames to seconds)
+            if durations and i < len(durations):
+                action_duration = durations[i] / 60.0  # Convert frames to seconds at 60fps
+            else:
+                action_duration = 2 / 60.0  # Default 2 frames = ~0.033 seconds
+            
+            # Add action-specific timing
+            if action in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+                # Movement actions need time for character to move and position to update
+                total_delay += action_duration + self.timing_config['movement_multiplier']
+            elif action in ['A', 'B']:
+                # Interaction actions may trigger dialogs, battles, or state changes
+                total_delay += action_duration + self.timing_config['interaction_multiplier']
+            elif action in ['START', 'SELECT']:
+                # Menu actions need time for UI to render and stabilize
+                total_delay += action_duration + self.timing_config['menu_multiplier']
+            else:
+                # Default timing for other actions
+                total_delay += action_duration + 0.3
+        
+        # Apply safety cap
+        final_delay = min(total_delay, self.timing_config['max_wait_time'])
+        
+        print(f"⏱️ Calculated screenshot delay: {final_delay:.2f}s for {len(actions)} actions")
+        return final_delay
     
     def _setup_socket_server(self):
         """Set up the socket server for mGBA communication"""
@@ -560,10 +646,10 @@ class AIGameService(threading.Thread):
             
             self.decision_count += 1
             
-            # Wait for cooldown, then request next screenshot
-            cooldown = config.get("decision_cooldown", 3)
-            print(f"⏳ Waiting {cooldown}s cooldown before next decision...")
-            time.sleep(cooldown)
+            # Calculate optimal delay based on actions sent
+            screenshot_delay = self._calculate_screenshot_delay(actions_to_send, durations_to_send)
+            print(f"⏳ Waiting {screenshot_delay:.2f}s for actions to complete and game state to stabilize...")
+            time.sleep(screenshot_delay)
             
             # Only request next screenshot if still connected
             if self.mgba_connected:
@@ -1305,3 +1391,20 @@ def is_ai_service_running() -> bool:
     """Check if AI service is running"""
     global _ai_service_instance
     return _ai_service_instance is not None and _ai_service_instance.is_alive()
+
+
+def reload_ai_service_timing_config() -> bool:
+    """Reload timing configuration in the running AI service"""
+    global _ai_service_instance
+    
+    try:
+        if _ai_service_instance and _ai_service_instance.is_alive():
+            _ai_service_instance.reload_timing_config()
+            print("✅ AI service timing configuration reloaded")
+            return True
+        else:
+            print("⚠️ AI service is not running - cannot reload timing config")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to reload AI service timing config: {e}")
+        return False

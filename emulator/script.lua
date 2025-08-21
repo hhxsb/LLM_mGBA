@@ -483,8 +483,7 @@ function stopVideoRecording()
         debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
         debugBuffer:print("Button count: " .. dataPackage.buttonCount .. "\n")
         
-        -- Set flag back to waiting for next request
-        waitingForRequest = true
+        -- AI service controls timing, no need to set waiting flag
     end
 end
 
@@ -523,8 +522,7 @@ function captureAndSendScreenshot()
     debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
     debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
     
-    -- Set flag back to waiting for next request
-    waitingForRequest = true
+    -- AI service controls timing, no need to set waiting flag
 end
 
 function sendGameState()
@@ -639,11 +637,10 @@ function socketReceived()
         -- Process different command types
         if data == "request_screenshot" then
             debugBuffer:print("Screenshot requested by controller\n")
-            -- Only take screenshot if we're waiting for a request and game is configured
-            if waitingForRequest and gameConfigReceived then
-                waitingForRequest = false
+            -- Always respond to screenshot requests if game is configured (AI service controls timing)
+            if gameConfigReceived then
                 captureAndSendScreenshot()
-            elseif not gameConfigReceived then
+            else
                 debugBuffer:print("Cannot take screenshot: Game not configured yet\n")
             end
         elseif data == "request_state" then
