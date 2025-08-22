@@ -15,17 +15,21 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.decorators.csrf import csrf_exempt
 from . import simple_views
 
 urlpatterns = [
+    # Django admin
     path('admin/', admin.site.urls),
+    
+    # Main application views
     path('', simple_views.dashboard_view, name='dashboard'),
     path('config/', simple_views.config_view, name='config'),
-    path('api/', include('api.urls')),  # Include API URLs
+    
+    # AI service API endpoints (all handled in simple_views.py)
     path('api/restart-service/', csrf_exempt(simple_views.restart_service), name='restart_service'),
     path('api/stop-service/', csrf_exempt(simple_views.stop_service), name='stop_service'),
     path('api/reset-llm-session/', csrf_exempt(simple_views.reset_llm_session), name='reset_llm_session'),
@@ -35,6 +39,9 @@ urlpatterns = [
     path('api/save-rom-config/', csrf_exempt(simple_views.save_rom_config), name='save_rom_config'),
     path('api/save-ai-config/', csrf_exempt(simple_views.save_ai_config), name='save_ai_config'),
     path('api/chat-messages/', csrf_exempt(simple_views.get_chat_messages), name='get_chat_messages'),
+    
+    # Disabled: Legacy API app - superseded by simple_views
+    # path('api/', include('api.urls')),
 ]
 
 # Serve static and media files in development

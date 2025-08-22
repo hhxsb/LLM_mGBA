@@ -1,7 +1,7 @@
 """
-Simple views to get the dashboard UI working while debugging import issues
+Primary views and API endpoints for AI GBA Player.
+All HTML/CSS/JS embedded directly for simplified architecture.
 """
-from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
 import subprocess
 import time
@@ -13,7 +13,29 @@ from pathlib import Path
 CONFIG_FILE = '/tmp/ai_gba_player_config.json'
 
 def load_config():
-    """Load configuration from file"""
+    """Load configuration from database (primary) or file (fallback)"""
+    try:
+        # Try to load from database first
+        from dashboard.models import Configuration
+        db_config = Configuration.objects.first()
+        if db_config:
+            config_dict = db_config.to_dict()
+            return {
+                'rom_path': config_dict.get('rom_path', ''),
+                'mgba_path': config_dict.get('mgba_path', ''),
+                'llm_provider': config_dict.get('llm_provider', 'google'),
+                'api_key': config_dict.get('providers', {}).get(config_dict.get('llm_provider', 'google'), {}).get('api_key', ''),
+                'cooldown': config_dict.get('decision_cooldown', 3),
+                'base_stabilization': 0.5,  # Not in DB model yet
+                'movement_multiplier': 0.8,  # Not in DB model yet  
+                'interaction_multiplier': 0.6,  # Not in DB model yet
+                'menu_multiplier': 0.4,  # Not in DB model yet
+                'max_wait_time': 10.0  # Not in DB model yet
+            }
+    except Exception as e:
+        print(f"Database config failed, using file fallback: {e}")
+        
+    # Fallback to file-based config
     try:
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, 'r') as f:
@@ -34,12 +56,41 @@ def load_config():
     }
 
 def save_config_to_file(config):
-    """Save configuration to file"""
+    """Save configuration to database (primary) and file (backup)"""
     try:
+        # Save to database first
+        from dashboard.models import Configuration
+        db_config = Configuration.objects.first()
+        if not db_config:
+            db_config = Configuration.objects.create()
+        
+        # Update database fields
+        if 'rom_path' in config:
+            db_config.rom_path = config['rom_path']
+        if 'mgba_path' in config:
+            db_config.mgba_path = config['mgba_path']
+        if 'llm_provider' in config:
+            db_config.llm_provider = config['llm_provider']
+        if 'cooldown' in config:
+            db_config.decision_cooldown = config['cooldown']
+        
+        # Update API key in providers JSON
+        if 'api_key' in config and 'llm_provider' in config:
+            providers = db_config.providers or {}
+            provider_key = 'google' if config['llm_provider'] == 'gemini' else config['llm_provider']
+            if provider_key not in providers:
+                providers[provider_key] = {}
+            providers[provider_key]['api_key'] = config['api_key']
+            db_config.providers = providers
+            
+        db_config.save()
+        
+        # Also save to file as backup
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
         return True
-    except:
+    except Exception as e:
+        print(f"Error saving config: {e}")
         return False
 
 def dashboard_view(request):
@@ -1231,27 +1282,7 @@ def _update_main_config_file(provider, api_key, cooldown):
         print(f"Error updating main config: {e}")
         return False
 
-def stop_service(request):
-    """Stop the AI service"""
-    try:
-        from dashboard.ai_game_service import stop_ai_service
-        
-        success = stop_ai_service()
-        if success:
-            return JsonResponse({
-                'success': True,
-                'message': 'AI service stopped successfully'
-            })
-        else:
-            return JsonResponse({
-                'success': False,
-                'message': 'Failed to stop AI service'
-            })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': f'Error stopping service: {str(e)}'
-        })
+# Duplicate stop_service function removed - kept the one above with better error handling
 
 def chat_message(request):
     """Handle incoming chat messages (WebSocket alternative for now)"""
@@ -1272,7 +1303,7 @@ def chat_message(request):
         
         return JsonResponse({
             'success': True,
-            'message': 'Message received'
+            'message': f'Message received: {content}'
         })
     except Exception as e:
         return JsonResponse({

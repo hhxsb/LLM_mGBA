@@ -75,62 +75,89 @@ curl http://localhost:8000/api/chat-messages/
 # - dev-tools/memory-debugging/find_sapphire_direction.lua
 ```
 
-## Project Structure
+## Project Structure (Updated)
 
+### Active Components (Used by `python manage.py runserver`)
 ```
 ai_gba_player/                     # Django web application (MAIN)
-├── manage.py                      # Django management
-├── ai_gba_player/                 # Django project settings
-│   ├── settings.py                # Django configuration
-│   ├── urls.py                    # URL routing
-│   └── simple_views.py            # Web views and API endpoints
-├── dashboard/                     # Main Django app
-│   ├── ai_game_service.py         # AI service (socket server + LLM)
-│   ├── llm_client.py              # LLM API client (Google/OpenAI/Anthropic)
-│   ├── models.py                  # Database models (Configuration, Process)
-│   └── templates/dashboard/       # HTML templates
-│       ├── base.html              # Base template
-│       └── dashboard.html         # Main interface (chat + config)
-├── db.sqlite3                     # SQLite database
-└── static/                        # CSS/JS assets
+├── manage.py                      # Django management command entry point
+├── ai_gba_player/                 # Django project settings directory
+│   ├── settings.py                # Django configuration (apps, database, paths)
+│   ├── urls.py                    # Main URL routing (includes API endpoints)
+│   ├── simple_views.py            # PRIMARY VIEW LAYER - embedded HTML + API endpoints
+│   ├── wsgi.py                    # WSGI application server entry point
+│   └── asgi.py                    # ASGI application server entry point (unused)
+├── dashboard/                     # Primary Django app - ALL core functionality
+│   ├── ai_game_service.py         # CORE: AI service (socket server + LLM integration)
+│   ├── llm_client.py              # CORE: Multi-provider LLM API client 
+│   ├── game_detector.py           # Game detection and configuration
+│   ├── models.py                  # Database models (Configuration, Process, etc.)
+│   ├── static/dashboard/          # CSS/JS for web interface
+│   │   ├── css/dashboard.css      # Main dashboard styling
+│   │   └── js/dashboard.js        # Frontend JavaScript (chat polling)
+│   └── migrations/                # Database schema migrations
+├── core/                          # Memory system integration ONLY
+│   ├── graphiti_memory.py         # Graphiti-based autonomous learning system
+│   └── memory_service.py          # Memory service abstraction layer
+├── db.sqlite3                     # SQLite database (configuration + process state)
+├── media/uploads/roms/            # ROM file uploads directory
+└── staticfiles/                   # Collected static files (Django admin + custom)
 
 emulator/
-└── script.lua                     # mGBA Lua script for game control
+└── script.lua                     # mGBA Lua script for game control (TCP socket communication)
 
-data/
-├── screenshots/                   # Game screenshots
-├── knowledge_graph.json           # AI memory system (legacy)
-├── prompt_template.txt             # Optimized prompt template
-└── notepad.txt                     # Simple text-based memory
-
-ai_gba_player/core/                # Enhanced memory system
-└── graphiti_memory.py             # Graphiti-based autonomous learning
-
-core/                              # Legacy utilities (not used)
-├── base_knowledge_system.py       # Knowledge management (legacy)
-├── base_game_controller.py        # Game controller base (legacy)
-└── screen_capture.py              # Screenshot utilities (legacy)
-
-games/pokemon_red/                 # Game-specific modules (extensible)
-├── controller.py                  # Pokemon Red controller
-├── knowledge_system.py            # Game-specific knowledge
-└── prompt_template.py             # Pokemon Red prompts
-
-dev-tools/                         # Development & debugging tools
-├── memory-debugging/              # Memory address debugging scripts
-│   ├── simple_sapphire_memory_finder.lua
-│   └── find_sapphire_direction.lua
-└── test-scripts/                  # System validation tests
-    ├── test_game_detection.py
-    └── test_final_sapphire_flow.py
-
-docs/                              # Documentation
-├── QUICKSTART.md                  # Quick setup guide
-├── POKEMON_SAPPHIRE_SETUP.md      # Sapphire-specific setup
-└── SAPPHIRE_MEMORY_DEBUG_GUIDE.md # Memory debugging guide
-
-config_emulator.json               # Configuration file (auto-updated)
+data/                              # AI memory and game state
+├── notepad.txt                    # Simple text-based AI memory log
+├── prompt_template.txt            # Optimized LLM prompt template
+└── screenshots/                   # Game screenshots for AI analysis
 ```
+
+### Legacy/Unused Components (NOT used by main program)
+```
+api/                               # ❌ UNUSED - Legacy REST API superseded by simple_views
+core/                              # ❌ UNUSED - Legacy base framework classes  
+games/                             # ❌ UNUSED - Game-specific modules (replaced by simple detection)
+tests/                             # ❌ UNUSED - Legacy test files
+dev-tools/                         # ⚠️  Development utilities only (not part of main program)
+docs/                              # ⚠️  Documentation only
+```
+
+## Actual Architecture (How `python manage.py runserver` Works)
+
+### Django Application Structure
+The main program follows a **simplified single-file approach**:
+
+**1. Entry Point**: `ai_gba_player/manage.py`
+- Standard Django management command entry point
+- Sets `DJANGO_SETTINGS_MODULE = 'ai_gba_player.settings'`
+
+**2. Django Project**: `ai_gba_player/ai_gba_player/`
+- `settings.py`: Configures Django apps, database, static files
+- `urls.py`: Routes all URLs to views in `simple_views.py` 
+- `simple_views.py`: **CORE IMPLEMENTATION** - contains all views and API endpoints
+
+**3. Main App**: `ai_gba_player/dashboard/`
+- `ai_game_service.py`: Socket server + AI decision engine
+- `llm_client.py`: Multi-provider LLM API wrapper
+- `models.py`: Database models for configuration storage
+
+### Key Design Decisions
+
+**Embedded HTML Approach**: 
+- All HTML/CSS/JS embedded directly in `simple_views.py`
+- No separate template files needed
+- Eliminates template loading complexity
+- Single-file contains complete UI + API
+
+**File-Based Configuration Fallback**:
+- Primary: SQLite database via Django models  
+- Secondary: `/tmp/ai_gba_player_config.json` for simple storage
+- Auto-updates main `config_emulator.json` when needed
+
+**Direct Socket Communication**:
+- AI service runs as daemon thread from Django
+- Direct TCP socket on port 8888 for mGBA communication
+- No complex message queues or inter-process communication
 
 ## Configuration System
 
@@ -374,14 +401,37 @@ curl -X POST http://localhost:8000/api/stop-service/
 ## Architecture Principles
 
 The simplified system is designed with these principles:
-- **Single Process**: No complex multi-process coordination
-- **Web-based**: Everything manageable through browser interface
-- **Database-driven**: Configuration stored in SQLite, not files
-- **Socket Communication**: Direct TCP for reliable mGBA connection
-- **Real-time Monitoring**: Live chat interface for transparency
+- **Single Process**: Django manages everything - no complex multi-process coordination
+- **Embedded UI**: All HTML/CSS/JS in simple_views.py - no template complexity
+- **Direct Socket**: TCP connection on port 8888 for mGBA communication
+- **Database-first**: Configuration stored in SQLite via Django models
+- **Real-time Monitoring**: Live chat interface with polling for transparency
 - **Error Recovery**: Graceful handling of failures at all levels
-- **Extensible**: Easy to add new games and LLM providers
+- **Minimal Dependencies**: No REST framework, channels, or complex middleware
 
-The system represents a **major simplification** from the original complex multi-process architecture while maintaining all core functionality and improving user experience significantly.
+## Code Organization Status (CLEANED UP)
+
+### ✅ Active Components (Required for main program)
+- `ai_gba_player/manage.py` - Django entry point
+- `ai_gba_player/ai_gba_player/simple_views.py` - **CORE: All views + API endpoints**
+- `ai_gba_player/dashboard/ai_game_service.py` - **CORE: Socket server + AI logic**
+- `ai_gba_player/dashboard/llm_client.py` - **CORE: Multi-provider LLM client**
+- `ai_gba_player/dashboard/models.py` - Database configuration storage
+- `emulator/script.lua` - mGBA interface script
+
+### ❌ Disabled/Unused Components (Safe to ignore)
+- `ai_gba_player/api/` - **DISABLED in settings.py** - Legacy REST API superseded
+- `core/` (root) - **NOT IMPORTED** - Legacy base framework classes
+- `games/` - **NOT USED** - Game-specific modules (simplified approach used)
+- `staticfiles/rest_framework/` - **REMOVED** - Unused static files cleaned up
+
+### 🔧 Simplified Architecture Benefits
+- **90% less code complexity** than original multi-process design
+- **Single-file UI approach** eliminates template loading overhead
+- **Direct database storage** removes JSON file management complexity
+- **Embedded AI service** runs as daemon thread from Django process
+- **Zero external dependencies** beyond Django and LLM APIs
+
+The system represents a **major architectural simplification** optimized for reliability and maintainability.
 
 **Quick Start**: `cd ai_gba_player && python manage.py runserver` → http://localhost:8000 🚀

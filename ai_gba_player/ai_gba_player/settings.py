@@ -43,13 +43,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Third party apps
-    # 'channels',  # Temporarily disabled
-    # 'rest_framework',  # Temporarily disabled
     # Local apps
-    'core',        # Memory system initialization
-    'dashboard',
-    # 'api',  # Temporarily disabled
+    'core',        # Memory system initialization only
+    'dashboard',   # Primary app - AI service, models, views
+    # Disabled unused apps:
+    # 'api',         # Legacy REST API - superseded by simple_views
+    # 'channels',    # WebSocket support - using polling instead
+    # 'rest_framework',  # REST API framework - not needed
 ]
 
 MIDDLEWARE = [
