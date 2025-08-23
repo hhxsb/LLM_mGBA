@@ -688,9 +688,6 @@ class AIGameService(threading.Thread):
     def _process_ai_decision(self, screenshot_path: str, game_state: Dict[str, Any]):
         """Process screenshot through AI and send commands back to mGBA"""
         try:
-            # Register new screenshot in tracking system
-            self._register_new_screenshot(screenshot_path)
-            
             # Update game state tracking
             new_x = game_state.get('position', {}).get('x', 0)
             new_y = game_state.get('position', {}).get('y', 0)
@@ -706,8 +703,20 @@ class AIGameService(threading.Thread):
             self.player_direction = new_direction
             self.map_id = new_map_id
             
-            # Get the latest screenshots for comparison
-            previous_path, current_path = self._get_latest_screenshots()
+            # Get the previous screenshot (most recent in map) BEFORE registering the new one
+            previous_path = None
+            if len(self.screenshot_map) > 0:
+                # Get the most recent screenshot as "previous"
+                sorted_screenshots = sorted(
+                    self.screenshot_map.items(),
+                    key=lambda x: x[1], 
+                    reverse=True
+                )
+                previous_path = sorted_screenshots[0][0]
+            
+            # Now register the new screenshot as "current"
+            self._register_new_screenshot(screenshot_path)
+            current_path = screenshot_path
             
             # Display screenshots being sent to AI
             if previous_path and current_path and previous_path != current_path:
@@ -741,31 +750,53 @@ class AIGameService(threading.Thread):
             # Show AI response in chat (includes both decision and analysis)
             self._send_ai_response_message(ai_response)
             
-            # Process actions
-            actions_to_send = ai_response.get("actions", ["A"])
+            # Check if this is an error response first
+            is_error_response = not ai_response.get("success", True)
+            actions_to_send = ai_response.get("actions", [])
             durations_to_send = ai_response.get("durations", [])
             
-            # Validate actions
-            valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
-            actions_to_send = [action for action in actions_to_send if action in valid_buttons]
-            if not actions_to_send:
-                actions_to_send = ["A"]
+            if is_error_response:
+                # Error occurred - don't send any actions
+                print("🚫 Error response detected - not sending any button actions")
+                actions_to_send = []
+            else:
+                # Normal response - validate and process actions
+                if not actions_to_send:
+                    # Only add fallback "A" for successful responses with missing actions
+                    actions_to_send = ["A"]
+                    print("⚠️ No actions provided in successful response - using fallback 'A'")
+                
+                # Validate actions
+                valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
+                actions_to_send = [action for action in actions_to_send if action in valid_buttons]
+                if not actions_to_send:
+                    actions_to_send = ["A"]  # Final fallback for successful responses
             
             # Add to recent actions history
             reasoning = ai_response.get("text", "No reasoning provided")
-            sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
+            if actions_to_send:
+                sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
+            else:
+                sequence_description = "0 actions: (error - no actions sent)"
             self._add_recent_action(sequence_description, reasoning, game_state)
             
-            # Send button sequence to mGBA  
-            self._send_button_sequence(actions_to_send, durations_to_send)
-            
-            # Calculate delay for actions + cooldown
-            action_delay = self._calculate_screenshot_delay(actions_to_send, durations_to_send)
-            cooldown = config.get('decision_cooldown', 3)
-            total_delay = action_delay + cooldown
-            
-            print(f"⏳ Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
-            time.sleep(total_delay)
+            # Only send button sequences and calculate delays if we have actions
+            if actions_to_send:
+                # Send button sequence to mGBA  
+                self._send_button_sequence(actions_to_send, durations_to_send)
+                
+                # Calculate delay for actions + cooldown
+                action_delay = self._calculate_screenshot_delay(actions_to_send, durations_to_send)
+                cooldown = config.get('decision_cooldown', 3)
+                total_delay = action_delay + cooldown
+                
+                print(f"⏳ Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
+                time.sleep(total_delay)
+            else:
+                # Error case - just wait minimal cooldown and continue
+                cooldown = config.get('decision_cooldown', 3)
+                print(f"⏳ Error occurred - waiting minimal {cooldown}s cooldown before continuing")
+                time.sleep(cooldown)
             
             # Request next screenshot to continue cycle
             if self.mgba_connected:
@@ -954,12 +985,19 @@ class AIGameService(threading.Thread):
                 "RIGHT": "4", "LEFT": "5", "UP": "6", "DOWN": "7", "R": "8", "L": "9"
             }
             
+            # Check for empty actions list (error condition - don't press anything)
+            if not actions:
+                print("🛑 Empty actions list - not pressing any buttons (error occurred)")
+                self._send_chat_message("system", "🛑 No button actions sent due to error")
+                return True  # Return success without sending buttons
+            
             # Validate actions
             valid_actions = [action for action in actions if action in button_map]
             if not valid_actions:
                 print(f"⚠️ No valid actions in: {actions}")
-                valid_actions = ["A"]  # Fallback to safe action
-                durations = []
+                print("🛑 Not pressing any buttons due to invalid action list")
+                self._send_chat_message("system", "🛑 No valid button actions - skipping button press")
+                return True  # Return success without sending buttons
             
             # Process durations
             if durations:
@@ -1095,6 +1133,7 @@ class AIGameService(threading.Thread):
                 "text": ai_response.get("text", ""),
                 "actions": ai_response.get("actions", []),
                 "success": ai_response.get("success", True),
+                "error_details": ai_response.get("error_details", None),  # Add error details for expandable UI
                 "timestamp": datetime.now().isoformat(),
                 "id": self.message_counter  # Add unique ID for tracking
             }

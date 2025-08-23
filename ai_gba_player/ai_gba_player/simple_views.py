@@ -158,6 +158,12 @@ def dashboard_view(request):
         .message-image { max-width: 300px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .message-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
         .action-item { display: inline-block; background: #f3f4f6; padding: 4px 8px; border-radius: 12px; font-size: 12px; margin: 2px; font-weight: 500; }
+        .action-item.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .error-message { border-left: 4px solid #ef4444 !important; background: #fefeff !important; }
+        .error-expandable { margin-top: 8px; }
+        .error-toggle { cursor: pointer; font-size: 12px; color: #ef4444; user-select: none; }
+        .error-toggle:hover { color: #dc2626; }
+        .error-details { background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; font-size: 11px; font-family: monospace; color: #b91c1c; }
         .welcome-message { text-align: center; color: #6b7280; padding: 40px; }
         .chat-controls { padding: 15px 20px; background: white; border-top: 1px solid #e1e8ed; }
         .controls-row { display: flex; gap: 10px; }
@@ -440,7 +446,7 @@ def dashboard_view(request):
             } else if (message.type === 'screenshot_comparison') {
                 addScreenshotComparisonMessage(message);
             } else if (message.type === 'ai_response') {
-                addAIResponse(message.text, message.actions, message.timestamp);
+                addAIResponse(message.text, message.actions, message.timestamp, message.error_details);
             }
         }
         
@@ -627,7 +633,7 @@ def dashboard_view(request):
             scrollToBottom();
         }
         
-        function addAIResponse(response, actions, timestamp = null) {
+        function addAIResponse(response, actions, timestamp = null, error_details = null) {
             const messagesContainer = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message message-received';
@@ -639,19 +645,55 @@ def dashboard_view(request):
                 actionsHtml = '<div class="message-actions">' + 
                     actions.map(action => `<span class="action-item">🎮 ${action}</span>`).join('') + 
                     '</div>';
+            } else if (error_details) {
+                // Show "No actions" for errors
+                actionsHtml = '<div class="message-actions"><span class="action-item error">⏸️ No actions (error occurred)</span></div>';
+            }
+            
+            // Check if this is an error message
+            const isError = response.includes('⚠️ An error occurred');
+            const messageClass = isError ? 'error-message' : '';
+            
+            let errorDetailsHtml = '';
+            if (isError && error_details) {
+                const detailsId = 'error-details-' + Date.now() + Math.random().toString(36).substr(2, 9);
+                errorDetailsHtml = `
+                    <div class="error-expandable" style="margin-top: 8px;">
+                        <div class="error-toggle" onclick="toggleErrorDetails('${detailsId}')" style="cursor: pointer; font-size: 12px; color: #ef4444;">
+                            ▶ Show error details
+                        </div>
+                        <div id="${detailsId}" class="error-details" style="display: none; margin-top: 4px; padding: 8px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; font-size: 11px; font-family: monospace; color: #b91c1c;">
+                            ${error_details}
+                        </div>
+                    </div>
+                `;
             }
             
             messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div style="font-weight: 500; margin-bottom: 4px;">🤖 AI Response</div>
+                <div class="message-bubble ${messageClass}">
+                    <div style="font-weight: 500; margin-bottom: 4px;">${isError ? '❌ AI Error' : '🤖 AI Response'}</div>
                     <div>${response}</div>
                     ${actionsHtml}
+                    ${errorDetailsHtml}
                 </div>
                 <div class="message-timestamp">${timeStr}</div>
             `;
             messagesContainer.appendChild(messageDiv);
             updateMessageCount();
             scrollToBottom();
+        }
+        
+        function toggleErrorDetails(detailsId) {
+            const details = document.getElementById(detailsId);
+            const toggle = details.previousElementSibling;
+            
+            if (details.style.display === 'none') {
+                details.style.display = 'block';
+                toggle.innerHTML = '▼ Hide error details';
+            } else {
+                details.style.display = 'none';
+                toggle.innerHTML = '▶ Show error details';
+            }
         }
         
         function addScreenshotComparisonMessage(message) {

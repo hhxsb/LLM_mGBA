@@ -386,7 +386,7 @@ class Configuration(models.Model):
             'providers': {
                 'google': {
                     'api_key': '',
-                    'model_name': 'gemini-2.5-pro',
+                    'model_name': 'gemini-2.5-flash',
                     'max_tokens': 4096
                 },
                 'openai': {

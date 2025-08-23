@@ -161,10 +161,11 @@ class LLMClient:
             # Load and enhance screenshot
             if not os.path.exists(screenshot_path):
                 return {
-                    "text": "Screenshot not found",
-                    "actions": ["A"],  # Default action
+                    "text": "⚠️ An error occurred: Screenshot not found",
+                    "actions": [],  # No actions on error
                     "success": False,
-                    "error": f"Screenshot file not found: {screenshot_path}"
+                    "error": f"Screenshot file not found: {screenshot_path}",
+                    "error_details": f"Screenshot file not found: {screenshot_path}"
                 }
             
             # Create enhanced game context with recent actions and before/after analysis
@@ -182,10 +183,11 @@ class LLMClient:
             print(f"❌ LLM analysis error: {e}")
             traceback.print_exc()
             return {
-                "text": f"AI analysis failed: {str(e)}",
-                "actions": ["A"],  # Safe default
+                "text": f"⚠️ An error occurred: AI analysis failed",
+                "actions": [],  # No actions on error
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "error_details": f"AI analysis failed: {str(e)}"
             }
     
     def analyze_game_state_with_comparison(self, current_screenshot: str, previous_screenshot: str, 
@@ -205,10 +207,11 @@ class LLMClient:
             # Load and enhance both screenshots
             if not os.path.exists(current_screenshot):
                 return {
-                    "text": "Current screenshot not found",
-                    "actions": ["A"],
+                    "text": "⚠️ An error occurred: Current screenshot not found", 
+                    "actions": [],  # No actions on error
                     "success": False,
-                    "error": f"Current screenshot not found: {current_screenshot}"
+                    "error": f"Current screenshot not found: {current_screenshot}",
+                    "error_details": f"Current screenshot not found: {current_screenshot}"
                 }
             
             if not os.path.exists(previous_screenshot):
@@ -230,10 +233,11 @@ class LLMClient:
             print(f"❌ LLM comparison analysis error: {e}")
             traceback.print_exc()
             return {
-                "text": f"AI comparison analysis failed: {str(e)}",
-                "actions": ["A"],
+                "text": f"⚠️ An error occurred: AI comparison analysis failed",
+                "actions": [],  # No actions on error
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "error_details": f"AI comparison analysis failed: {str(e)}"
             }
     
     def _create_comparison_context(self, game_state: Dict[str, Any], recent_actions_text: str = "") -> str:
@@ -352,21 +356,68 @@ CURRENT SCREENSHOT (after your last actions):
             )
             print(f"📡 Received comparison response from Google Gemini API")
             
-            # Use the complete parsing logic from _call_google_api
+            # Parse response - first extract text to check if response is empty
             response_text = ""
-            actions = ["A"]  # Default action
-            durations = []  # Default durations
+            actions = []  # Will remain empty if no text found
+            durations = []
             notepad_update = None
             
             print(f"🔍 Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
+            
+            # First pass: Extract only text content to check if response is valid
             if response.candidates:
                 candidate = response.candidates[0]
-                
-                # Get text content and tool calls
                 if hasattr(candidate.content, 'parts'):
                     for part in candidate.content.parts:
                         if hasattr(part, 'text') and part.text:
                             response_text += part.text
+            
+            # Check for empty response BEFORE parsing function calls
+            if not response_text.strip():
+                # Convert full response to JSON for debugging
+                import json
+                try:
+                    response_dict = {
+                        "candidates": []
+                    }
+                    if response.candidates:
+                        for i, candidate in enumerate(response.candidates):
+                            candidate_dict = {"candidate_" + str(i): {}}
+                            if hasattr(candidate.content, 'parts'):
+                                parts_info = []
+                                for j, part in enumerate(candidate.content.parts):
+                                    part_info = {"part_" + str(j): {}}
+                                    if hasattr(part, 'text'):
+                                        part_info["part_" + str(j)]["text"] = part.text or "null"
+                                    if hasattr(part, 'function_call'):
+                                        part_info["part_" + str(j)]["function_call"] = {
+                                            "name": part.function_call.name,
+                                            "args": str(part.function_call.args)
+                                        }
+                                    parts_info.append(part_info)
+                                candidate_dict["candidate_" + str(i)]["parts"] = parts_info
+                            response_dict["candidates"].append(candidate_dict)
+                    
+                    response_json = json.dumps(response_dict, indent=2)
+                except Exception as json_error:
+                    response_json = f"Failed to serialize response: {str(json_error)}"
+                
+                error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
+                print(f"⚠️ Empty response text from LLM - treating as error and ignoring all function calls")
+                
+                return {
+                    "text": "⚠️ An error occurred: LLM provided empty response",
+                    "actions": [],  # No actions - ignore function calls on empty response
+                    "success": False,
+                    "error": "Empty LLM response - system malfunction",
+                    "error_details": error_msg
+                }
+            
+            # Second pass: Extract function calls only if we have valid text
+            if response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate.content, 'parts'):
+                    for part in candidate.content.parts:
                         if hasattr(part, 'function_call') and part.function_call:
                             # Extract function calls
                             if part.function_call.name == "press_button_sequence":
@@ -429,8 +480,51 @@ CURRENT SCREENSHOT (after your last actions):
             if notepad_update:
                 self._update_notepad(notepad_update)
             
+            # Handle empty responses as errors - ignore function calls as system is malfunctioning
+            if not response_text:
+                # Convert full response to JSON for debugging
+                import json
+                try:
+                    response_dict = {
+                        "candidates": []
+                    }
+                    if response.candidates:
+                        for i, candidate in enumerate(response.candidates):
+                            candidate_dict = {"candidate_" + str(i): {}}
+                            if hasattr(candidate.content, 'parts'):
+                                parts_info = []
+                                for j, part in enumerate(candidate.content.parts):
+                                    part_info = {"part_" + str(j): {}}
+                                    if hasattr(part, 'text'):
+                                        part_info["part_" + str(j)]["text"] = part.text
+                                    if hasattr(part, 'function_call'):
+                                        part_info["part_" + str(j)]["function_call"] = {
+                                            "name": part.function_call.name,
+                                            "args": str(part.function_call.args)
+                                        }
+                                    parts_info.append(part_info)
+                                candidate_dict["candidate_" + str(i)]["parts"] = parts_info
+                            response_dict["candidates"].append(candidate_dict)
+                    
+                    response_json = json.dumps(response_dict, indent=2)
+                except Exception as json_error:
+                    response_json = f"Failed to serialize response: {str(json_error)}"
+                
+                error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
+                print(f"⚠️ Empty response text from LLM - treating as error and ignoring function calls")
+                print(f"🚫 Ignoring extracted actions: {actions}")
+                print(f"🚫 Ignoring extracted durations: {durations}")
+                
+                return {
+                    "text": "⚠️ An error occurred: LLM provided empty response",
+                    "actions": [],  # No actions - ignore function calls on empty response
+                    "success": False,
+                    "error": "Empty LLM response - system malfunction",
+                    "error_details": error_msg
+                }
+            
             return {
-                "text": response_text if response_text else "AI analyzed screenshots and chose action.",
+                "text": response_text,
                 "actions": actions,
                 "durations": durations,
                 "success": True,
@@ -623,21 +717,68 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             )
             print(f"📡 Received response from Google Gemini API")
             
-            # Parse response
+            # Parse response - first extract text to check if response is empty
             response_text = ""
-            actions = ["A"]  # Default action
-            durations = []  # Default durations
+            actions = []  # Will remain empty if no text found
+            durations = []
             notepad_update = None
             
             print(f"🔍 Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
+            
+            # First pass: Extract only text content to check if response is valid
             if response.candidates:
                 candidate = response.candidates[0]
-                
-                # Get text content and tool calls
                 if hasattr(candidate.content, 'parts'):
                     for part in candidate.content.parts:
                         if hasattr(part, 'text') and part.text:
                             response_text += part.text
+            
+            # Check for empty response BEFORE parsing function calls
+            if not response_text.strip():
+                # Convert full response to JSON for debugging
+                import json
+                try:
+                    response_dict = {
+                        "candidates": []
+                    }
+                    if response.candidates:
+                        for i, candidate in enumerate(response.candidates):
+                            candidate_dict = {"candidate_" + str(i): {}}
+                            if hasattr(candidate.content, 'parts'):
+                                parts_info = []
+                                for j, part in enumerate(candidate.content.parts):
+                                    part_info = {"part_" + str(j): {}}
+                                    if hasattr(part, 'text'):
+                                        part_info["part_" + str(j)]["text"] = part.text or "null"
+                                    if hasattr(part, 'function_call'):
+                                        part_info["part_" + str(j)]["function_call"] = {
+                                            "name": part.function_call.name,
+                                            "args": str(part.function_call.args)
+                                        }
+                                    parts_info.append(part_info)
+                                candidate_dict["candidate_" + str(i)]["parts"] = parts_info
+                            response_dict["candidates"].append(candidate_dict)
+                    
+                    response_json = json.dumps(response_dict, indent=2)
+                except Exception as json_error:
+                    response_json = f"Failed to serialize response: {str(json_error)}"
+                
+                error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
+                print(f"⚠️ Empty response text from LLM - treating as error and ignoring all function calls")
+                
+                return {
+                    "text": "⚠️ An error occurred: LLM provided empty response",
+                    "actions": [],  # No actions - ignore function calls on empty response
+                    "success": False,
+                    "error": "Empty LLM response - system malfunction",
+                    "error_details": error_msg
+                }
+            
+            # Second pass: Extract function calls only if we have valid text
+            if response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate.content, 'parts'):
+                    for part in candidate.content.parts:
                         if hasattr(part, 'function_call') and part.function_call:
                             # Extract function calls
                             if part.function_call.name == "press_button_sequence":
@@ -762,9 +903,6 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             # Handle notepad update
             if notepad_update:
                 self._update_notepad(notepad_update)
-            
-            if not response_text:
-                response_text = "AI analyzed the game state and chose action."
             
             return {
                 "text": response_text,
@@ -1185,16 +1323,18 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             return "## 🧠 Memory System: Temporarily unavailable"
     
     def _fallback_response(self, context: str, error: str = None) -> Dict[str, Any]:
-        """Generate fallback response when AI fails"""
-        fallback_actions = ["A"]  # Simple safe action
+        """Generate fallback response when AI fails - no actions to prevent errors"""
+        # No fallback actions - stop game when there's an error
+        fallback_actions = []  # Empty array means no button presses
         
-        fallback_text = "AI service is in fallback mode. Using safe default action."
+        fallback_text = "⚠️ An error occurred with the AI service"
         if error:
-            fallback_text += f" (Error: {error})"
+            fallback_text = f"⚠️ An error occurred: {error}"
         
         return {
             "text": fallback_text,
             "actions": fallback_actions,
             "success": False,
-            "error": error
+            "error": error,
+            "error_details": error  # Full error details for expandable UI
         }
