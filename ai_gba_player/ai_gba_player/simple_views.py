@@ -175,6 +175,17 @@ def dashboard_view(request):
         .notepad-entry.new { background: #fef3cd; border-color: #f59e0b; animation: highlight 2s ease-out; }
         .notepad-empty { color: #6b7280; text-align: center; padding: 20px; font-style: italic; }
         @keyframes highlight { from { background: #fbbf24; } to { background: #fef3cd; } }
+        
+        /* Before/After Screenshot Styling */
+        .ai-decision-bubble { max-width: 90% !important; }
+        .decision-header { font-weight: 600; margin-bottom: 12px; color: #1f2937; }
+        .screenshot-comparison { margin: 12px 0; }
+        .before-after-container { display: flex; gap: 15px; justify-content: space-between; }
+        .screenshot-side { flex: 1; text-align: center; }
+        .screenshot-side label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #6366f1; }
+        .comparison-image { width: 100%; max-width: 200px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .ai-reasoning { margin: 12px 0; padding: 10px 14px; background: #eff6ff; border-radius: 8px; font-size: 13px; color: #1e40af; border-left: 4px solid #3b82f6; }
+        .results-analysis { margin-top: 12px; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #4b5563; border-left: 3px solid #6366f1; }
     </style>
 </head>
 <body>
@@ -426,6 +437,8 @@ def dashboard_view(request):
                 addSystemMessage(message.content, message.timestamp);
             } else if (message.type === 'screenshot') {
                 addScreenshotMessage(message.image_data, message.game_state, message.timestamp);
+            } else if (message.type === 'screenshot_comparison') {
+                addScreenshotComparisonMessage(message);
             } else if (message.type === 'ai_response') {
                 addAIResponse(message.text, message.actions, message.timestamp);
             }
@@ -636,6 +649,81 @@ def dashboard_view(request):
                 </div>
                 <div class="message-timestamp">${timeStr}</div>
             `;
+            messagesContainer.appendChild(messageDiv);
+            updateMessageCount();
+            scrollToBottom();
+        }
+        
+        function addScreenshotComparisonMessage(message) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-sent';
+            
+            const timeStr = new Date(message.timestamp).toLocaleTimeString();
+            
+            messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    <div style="font-weight: 500; margin-bottom: 8px;">📤 Screenshots Sent to AI</div>
+                    <div style="margin-bottom: 8px;">${message.game_state}</div>
+                    
+                    <div class="screenshot-comparison">
+                        <div class="before-after-container">
+                            <div class="screenshot-side">
+                                <label>PREVIOUS:</label>
+                                <img src="${message.previous_image_data}" class="comparison-image" alt="Previous screenshot">
+                            </div>
+                            <div class="screenshot-side">
+                                <label>CURRENT:</label>
+                                <img src="${message.current_image_data}" class="comparison-image" alt="Current screenshot">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="message-timestamp">${timeStr}</div>
+            `;
+            
+            const welcome = messagesContainer.querySelector('.welcome-message');
+            if (welcome) welcome.remove();
+            
+            messagesContainer.appendChild(messageDiv);
+            updateMessageCount();
+            scrollToBottom();
+        }
+        
+        function addActionAnalysis(message) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-received';
+            
+            const timeStr = new Date(message.timestamp * 1000).toLocaleTimeString();
+            
+            messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    <div style="font-weight: 500; margin-bottom: 8px;">🔍 Action Analysis</div>
+                    
+                    <div class="screenshot-comparison">
+                        <div class="before-after-container">
+                            <div class="screenshot-side">
+                                <label>BEFORE:</label>
+                                <img src="${message.before_image_data}" class="comparison-image" alt="Before screenshot">
+                            </div>
+                            <div class="screenshot-side">
+                                <label>AFTER:</label>
+                                <img src="${message.after_image_data}" class="comparison-image" alt="After screenshot">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="results-analysis">
+                        <strong>Analysis:</strong> ${message.results_analysis}
+                    </div>
+                </div>
+                <div class="message-timestamp">${timeStr}</div>
+            `;
+            
+            const welcome = messagesContainer.querySelector('.welcome-message');
+            if (welcome) welcome.remove();
+            
             messagesContainer.appendChild(messageDiv);
             updateMessageCount();
             scrollToBottom();

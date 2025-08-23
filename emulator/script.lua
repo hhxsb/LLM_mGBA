@@ -28,6 +28,9 @@ local screenshotPath = projectRoot .. "/data/screenshots/screenshot.png"
 local previousScreenshotPath = projectRoot .. "/data/screenshots/previous_screenshot.png"
 local videoPath = projectRoot .. "/data/videos/video_sequence.mp4"
 
+-- Screenshot session tracking for before/after pairs
+local currentSessionTimestamp = nil
+
 -- Game configuration system (received from Python service)
 local currentGame = nil
 local memoryAddresses = {}
@@ -492,15 +495,19 @@ function captureAndSendScreenshot()
     -- Create directory if it doesn't exist
     os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
     
+    -- Create new session timestamp for this before/after pair
+    currentSessionTimestamp = os.time()
+    local timestampedPath = string.gsub(screenshotPath, "%.png", "_before_" .. currentSessionTimestamp .. ".png")
+    
     -- Take the screenshot
-    emu:screenshot(screenshotPath)
+    emu:screenshot(timestampedPath)
     
     -- Read the game memory data
     local memoryData = readGameMemory()
     
     -- Create a data package to send with the screenshot
     local dataPackage = {
-        path = screenshotPath,
+        path = timestampedPath,
         direction = memoryData.direction.text,
         x = memoryData.position.x,
         y = memoryData.position.y,
@@ -517,12 +524,55 @@ function captureAndSendScreenshot()
     -- Send combined data to Python controller
     sendMessage("screenshot_with_state", dataString)
     
-    debugBuffer:print("Screenshot captured with game state:\n")
+    debugBuffer:print("BEFORE screenshot captured with game state:\n")
+    debugBuffer:print("Path: " .. timestampedPath .. "\n")
+    debugBuffer:print("Session timestamp: " .. currentSessionTimestamp .. "\n")
     debugBuffer:print("Direction: " .. dataPackage.direction .. "\n")
     debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
     debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
     
     -- AI service controls timing, no need to set waiting flag
+end
+
+function captureAndSendAfterScreenshot()
+    -- Create directory if it doesn't exist
+    os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
+    
+    -- Take the after screenshot using the same session timestamp
+    if not currentSessionTimestamp then
+        currentSessionTimestamp = os.time()  -- Fallback if no session timestamp
+    end
+    local afterScreenshotPath = string.gsub(screenshotPath, "%.png", "_after_" .. currentSessionTimestamp .. ".png")
+    emu:screenshot(afterScreenshotPath)
+    
+    -- Read the game memory data
+    local memoryData = readGameMemory()
+    
+    -- Create a data package to send with the after screenshot
+    local dataPackage = {
+        path = afterScreenshotPath,
+        direction = memoryData.direction.text,
+        x = memoryData.position.x,
+        y = memoryData.position.y,
+        mapId = memoryData.mapId
+    }
+    
+    -- Convert to a string format for sending
+    local dataString = dataPackage.path .. 
+                      "||" .. dataPackage.direction .. 
+                      "||" .. dataPackage.x .. 
+                      "||" .. dataPackage.y .. 
+                      "||" .. dataPackage.mapId
+    
+    -- Send combined data to Python controller with special prefix
+    sendMessage("after_screenshot_data", dataString)
+    
+    debugBuffer:print("AFTER screenshot captured with game state:\n")
+    debugBuffer:print("Path: " .. afterScreenshotPath .. "\n")
+    debugBuffer:print("Session timestamp: " .. currentSessionTimestamp .. "\n")
+    debugBuffer:print("Direction: " .. dataPackage.direction .. "\n")
+    debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
+    debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
 end
 
 function sendGameState()
@@ -642,6 +692,14 @@ function socketReceived()
                 captureAndSendScreenshot()
             else
                 debugBuffer:print("Cannot take screenshot: Game not configured yet\n")
+            end
+        elseif data == "request_after_screenshot" then
+            debugBuffer:print("After screenshot requested by controller\n")
+            -- Capture after screenshot if game is configured
+            if gameConfigReceived then
+                captureAndSendAfterScreenshot()
+            else
+                debugBuffer:print("Cannot take after screenshot: Game not configured yet\n")
             end
         elseif data == "request_state" then
             debugBuffer:print("Game state requested by controller (screen capture mode)\n")

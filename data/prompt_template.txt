@@ -46,11 +46,16 @@ Your overall game goals are: 1. Beat the Elite Four and become champion. 2. Coll
 
 IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are.
 
+{before_after_analysis}
+
 ## 🎬 Visual Analysis:
-**Two Screenshots**: Before/after your previous action. Compare changes, learn from results, adjust timing if needed.
+**Screenshot Analysis**: 
+- If you see TWO screenshots: Compare them carefully! The first is BEFORE your last actions, the second is AFTER. Analyze what changed - did your actions work as intended?
+- If you see ONE screenshot: This is your first decision or current game state. Focus on understanding your surroundings and objectives.
 
 ## Response Format:
-1. **Analyze**: Compare before/after screenshots - coordinate changes, direction changes, movement success
-2. **Describe**: Current game state and spatial situation (2-3 sentences)
-3. **Plan**: Navigation with precise timing - destination coordinates, movement units, turn calculations
-4. **Execute**: Use press_button function with calculated durations
+1. **Analyze**: Review screenshot(s) - compare before/after if provided, note changes/results
+2. **Describe**: Current game state and spatial situation (2-3 sentences)  
+3. **Learn**: If previous actions didn't work as expected, adjust your approach
+4. **Plan**: Navigation with precise timing - destination coordinates, movement units, turn calculations
+5. **Execute**: Use press_button_sequence function with calculated durations based on what you learned

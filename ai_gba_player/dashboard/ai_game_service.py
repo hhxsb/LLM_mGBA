@@ -51,6 +51,13 @@ class AIGameService(threading.Thread):
         self.last_screenshot = None
         self.decision_count = 0
         
+        # Screenshot tracking with sorted map and storage optimization
+        self.screenshot_map = {}  # {filename: creation_time}
+        self.max_screenshots = 10  # Keep only 10 most recent screenshots
+        self.screenshot_dir = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/screenshots")
+        self.current_screenshot_path = None
+        self._initialize_screenshot_tracking()
+        
         # Message buffering for handling partial messages
         self.message_buffer = ""
         
@@ -127,6 +134,114 @@ class AIGameService(threading.Thread):
         except Exception as e:
             print(f"⚠️ AI Service: Memory system initialization failed: {e}")
             self.memory_system = None
+    
+    def _initialize_screenshot_tracking(self):
+        """Initialize screenshot tracking by scanning existing files"""
+        try:
+            if not self.screenshot_dir.exists():
+                self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+                print(f"📁 Created screenshot directory: {self.screenshot_dir}")
+                return
+            
+            # Scan existing screenshot files and build the map
+            screenshot_files = list(self.screenshot_dir.glob("screenshot*.png"))
+            
+            for file_path in screenshot_files:
+                try:
+                    creation_time = file_path.stat().st_mtime
+                    self.screenshot_map[str(file_path)] = creation_time
+                except Exception as e:
+                    print(f"⚠️ Error reading file stats for {file_path}: {e}")
+            
+            print(f"📊 Found {len(self.screenshot_map)} existing screenshots")
+            
+            # Clean up excess screenshots immediately
+            self._cleanup_old_screenshots()
+            
+        except Exception as e:
+            print(f"❌ Error initializing screenshot tracking: {e}")
+    
+    def _cleanup_old_screenshots(self):
+        """Remove old screenshots, keeping only the most recent ones"""
+        try:
+            if len(self.screenshot_map) <= self.max_screenshots:
+                return
+            
+            # Sort by creation time (newest first)
+            sorted_screenshots = sorted(
+                self.screenshot_map.items(), 
+                key=lambda x: x[1], 
+                reverse=True
+            )
+            
+            # Keep only the newest screenshots
+            to_keep = sorted_screenshots[:self.max_screenshots]
+            to_remove = sorted_screenshots[self.max_screenshots:]
+            
+            # Remove old files
+            for file_path, _ in to_remove:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        print(f"🗑️ Removed old screenshot: {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"⚠️ Error removing {file_path}: {e}")
+            
+            # Update the map to only include kept files
+            self.screenshot_map = dict(to_keep)
+            
+            print(f"✅ Screenshot cleanup: kept {len(self.screenshot_map)}, removed {len(to_remove)}")
+            
+        except Exception as e:
+            print(f"❌ Error during screenshot cleanup: {e}")
+    
+    def _register_new_screenshot(self, screenshot_path: str):
+        """Register a new screenshot in the tracking map and clean up if needed"""
+        try:
+            if os.path.exists(screenshot_path):
+                creation_time = os.path.getmtime(screenshot_path)
+                self.screenshot_map[screenshot_path] = creation_time
+                
+                # Update current screenshot
+                self.current_screenshot_path = screenshot_path
+                
+                # Clean up old screenshots if we exceed the limit
+                if len(self.screenshot_map) > self.max_screenshots:
+                    self._cleanup_old_screenshots()
+                
+                print(f"📸 Registered: {os.path.basename(screenshot_path)} (total: {len(self.screenshot_map)})")
+                
+        except Exception as e:
+            print(f"❌ Error registering screenshot: {e}")
+    
+    def _get_latest_screenshots(self) -> tuple[str, str]:
+        """Get the two most recent screenshots for before/after comparison"""
+        try:
+            if len(self.screenshot_map) < 1:
+                return None, None
+            elif len(self.screenshot_map) == 1:
+                # Only one screenshot available - use it for both
+                latest_path = list(self.screenshot_map.keys())[0]
+                return latest_path, latest_path
+            
+            # Sort by creation time (newest first)
+            sorted_screenshots = sorted(
+                self.screenshot_map.items(),
+                key=lambda x: x[1], 
+                reverse=True
+            )
+            
+            # Get the two most recent
+            current_path = sorted_screenshots[0][0]    # Most recent (current)
+            previous_path = sorted_screenshots[1][0]   # Second most recent (previous)
+            
+            print(f"📸 Screenshot pair - Previous: {os.path.basename(previous_path)}, Current: {os.path.basename(current_path)}")
+            
+            return previous_path, current_path
+            
+        except Exception as e:
+            print(f"❌ Error getting latest screenshots: {e}")
+            return None, None
     
     def run(self):
         """Main thread execution - start socket server and handle connections"""
@@ -379,15 +494,18 @@ class AIGameService(threading.Thread):
     def _handle_ready_message(self):
         """Handle 'ready' message from mGBA"""
         print("✅ mGBA is ready for gameplay")
-        self._send_chat_message("system", "✅ mGBA ready - detecting game and sending config...")
         
-        # Detect game and send configuration to Lua
-        self._detect_and_configure_game()
+        # Only detect and configure game on first connection
+        if not self.game_config_sent:
+            self._send_chat_message("system", "✅ mGBA ready - detecting game and sending config...")
+            self._detect_and_configure_game()
+            
+            # Wait a moment for config to be processed before requesting screenshot
+            time.sleep(0.5)
+        else:
+            self._send_chat_message("system", "✅ mGBA ready - resuming gameplay")
         
-        # Wait a moment for config to be processed before requesting screenshot
-        time.sleep(0.5)
-        
-        # Then request first screenshot
+        # Request screenshot
         self._request_screenshot()
     
     def _handle_config_loaded_message(self):
@@ -570,6 +688,9 @@ class AIGameService(threading.Thread):
     def _process_ai_decision(self, screenshot_path: str, game_state: Dict[str, Any]):
         """Process screenshot through AI and send commands back to mGBA"""
         try:
+            # Register new screenshot in tracking system
+            self._register_new_screenshot(screenshot_path)
+            
             # Update game state tracking
             new_x = game_state.get('position', {}).get('x', 0)
             new_y = game_state.get('position', {}).get('y', 0)
@@ -585,8 +706,16 @@ class AIGameService(threading.Thread):
             self.player_direction = new_direction
             self.map_id = new_map_id
             
-            # Show screenshot in chat (sent message)
-            self._send_screenshot_message(screenshot_path, game_state)
+            # Get the latest screenshots for comparison
+            previous_path, current_path = self._get_latest_screenshots()
+            
+            # Display screenshots being sent to AI
+            if previous_path and current_path and previous_path != current_path:
+                # Subsequent cycle: Show both previous and current screenshots
+                self._send_screenshot_comparison_message(previous_path, current_path, game_state)
+            else:
+                # Initial cycle or only one screenshot: Show current screenshot only
+                self._send_single_screenshot_message(screenshot_path, game_state)
             
             # Load current configuration from database
             config = self._load_config()
@@ -600,67 +729,149 @@ class AIGameService(threading.Thread):
             # Add movement analysis to context
             movement_analysis = self._get_movement_analysis_text()
             
-            # Process through AI with enhanced context
-            enhanced_context = recent_actions_text + "\n" + movement_analysis
-            ai_response = self._call_ai_api(screenshot_path, game_state, config, enhanced_context)
+            # Call AI with latest screenshots for LLM-based analysis
+            ai_response = self._call_ai_api_with_comparison(
+                current_screenshot=current_path,
+                previous_screenshot=previous_path if previous_path != current_path else None,
+                game_state=game_state,
+                config=config,
+                enhanced_context=recent_actions_text + "\n" + movement_analysis
+            )
             
-            # Show AI response in chat (received message)
+            # Show AI response in chat (includes both decision and analysis)
             self._send_ai_response_message(ai_response)
             
-            # Process tool calls (notepad updates and button actions)
-            actions_to_send = []
-            durations_to_send = []
+            # Process actions
+            actions_to_send = ai_response.get("actions", ["A"])
+            durations_to_send = ai_response.get("durations", [])
             
-            if ai_response.get("actions"):
-                actions_to_send = ai_response["actions"]
-                durations_to_send = ai_response.get("durations", [])
-                
-                # Validate actions
-                valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
-                invalid_actions = [action for action in actions_to_send if action not in valid_buttons]
-                if invalid_actions:
-                    # Filter out invalid actions and corresponding durations
-                    valid_action_indices = [i for i, action in enumerate(actions_to_send) if action in valid_buttons]
-                    actions_to_send = [actions_to_send[i] for i in valid_action_indices]
-                    
-                    # Filter durations to match valid actions
-                    if durations_to_send:
-                        durations_to_send = [durations_to_send[i] if i < len(durations_to_send) else 2 for i in valid_action_indices]
-                    
-                    if not actions_to_send:
-                        actions_to_send = ["A"]
-                        durations_to_send = []
-                
-                # Add to recent actions history
-                if actions_to_send:
-                    reasoning = ai_response.get("text", "No reasoning provided")
-                    sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
-                    self._add_recent_action(sequence_description, reasoning, game_state)
-                
-                # Send button sequence to mGBA  
-                self._send_button_sequence(actions_to_send, durations_to_send)
+            # Validate actions
+            valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
+            actions_to_send = [action for action in actions_to_send if action in valid_buttons]
+            if not actions_to_send:
+                actions_to_send = ["A"]
             
-            # Process memory system updates (objective discovery, strategy learning)
+            # Add to recent actions history
+            reasoning = ai_response.get("text", "No reasoning provided")
+            sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
+            self._add_recent_action(sequence_description, reasoning, game_state)
+            
+            # Send button sequence to mGBA  
+            self._send_button_sequence(actions_to_send, durations_to_send)
+            
+            # Calculate delay for actions + cooldown
+            action_delay = self._calculate_screenshot_delay(actions_to_send, durations_to_send)
+            cooldown = config.get('decision_cooldown', 3)
+            total_delay = action_delay + cooldown
+            
+            print(f"⏳ Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
+            time.sleep(total_delay)
+            
+            # Request next screenshot to continue cycle
+            if self.mgba_connected:
+                self._request_screenshot()
+            
+            # Process memory system updates
             if self.memory_system:
                 self._process_memory_updates(ai_response, game_state, actions_to_send)
             
             self.decision_count += 1
             
-            # Calculate optimal delay based on actions sent
-            screenshot_delay = self._calculate_screenshot_delay(actions_to_send, durations_to_send)
-            print(f"⏳ Waiting {screenshot_delay:.2f}s for actions to complete and game state to stabilize...")
-            time.sleep(screenshot_delay)
-            
-            # Only request next screenshot if still connected
-            if self.mgba_connected:
-                self._request_screenshot()
-            else:
-                print("⚠️ Skipping screenshot request - mGBA disconnected")
-            
         except Exception as e:
             print(f"❌ AI decision error: {e}")
             traceback.print_exc()
             self._handle_ai_processing_error(e, screenshot_path, game_state)
+    
+    def _send_single_screenshot_message(self, screenshot_path: str, game_state: Dict[str, Any]):
+        """Send single screenshot message for initial cycle"""
+        try:
+            if os.path.exists(screenshot_path):
+                with open(screenshot_path, 'rb') as f:
+                    image_data = base64.b64encode(f.read()).decode('utf-8')
+                
+                position_text = f"📍 Position: ({game_state['position']['x']}, {game_state['position']['y']}) facing {game_state['direction']}"
+                
+                self.message_counter += 1
+                message = {
+                    "type": "screenshot",
+                    "image_data": f"data:image/png;base64,{image_data}",
+                    "game_state": f"📤 Screenshot sent to AI for analysis... {position_text}",
+                    "timestamp": datetime.now().isoformat(),
+                    "id": self.message_counter
+                }
+                
+                self.chat_messages.append(message)
+                if len(self.chat_messages) > self.max_messages:
+                    self.chat_messages.pop(0)
+                    
+        except Exception as e:
+            print(f"❌ Error sending single screenshot message: {e}")
+    
+    def _send_screenshot_comparison_message(self, previous_path: str, current_path: str, game_state: Dict[str, Any]):
+        """Send screenshot comparison message for subsequent cycles"""
+        try:
+            previous_image_data = ""
+            current_image_data = ""
+            
+            if os.path.exists(previous_path):
+                with open(previous_path, 'rb') as f:
+                    previous_image_data = base64.b64encode(f.read()).decode('utf-8')
+                    
+            if os.path.exists(current_path):
+                with open(current_path, 'rb') as f:
+                    current_image_data = base64.b64encode(f.read()).decode('utf-8')
+            
+            position_text = f"📍 Position: ({game_state['position']['x']}, {game_state['position']['y']}) facing {game_state['direction']}"
+            
+            self.message_counter += 1
+            message = {
+                "type": "screenshot_comparison",
+                "previous_image_data": f"data:image/png;base64,{previous_image_data}",
+                "current_image_data": f"data:image/png;base64,{current_image_data}",
+                "game_state": f"📤 Previous and current screenshots sent to AI for analysis... {position_text}",
+                "timestamp": datetime.now().isoformat(),
+                "id": self.message_counter
+            }
+            
+            self.chat_messages.append(message)
+            if len(self.chat_messages) > self.max_messages:
+                self.chat_messages.pop(0)
+                
+        except Exception as e:
+            print(f"❌ Error sending screenshot comparison message: {e}")
+    
+    def _call_ai_api_with_comparison(self, current_screenshot: str, previous_screenshot: Optional[str], 
+                                   game_state: Dict[str, Any], config: Dict[str, Any], enhanced_context: str) -> Dict[str, Any]:
+        """Call AI API with optional previous screenshot for comparison"""
+        try:
+            # Initialize LLM client if needed
+            if not self.llm_client:
+                self.llm_client = LLMClient(config)
+            
+            # Call LLM with both screenshots if previous exists
+            if previous_screenshot and os.path.exists(previous_screenshot):
+                return self.llm_client.analyze_game_state_with_comparison(
+                    current_screenshot=current_screenshot,
+                    previous_screenshot=previous_screenshot,
+                    game_state=game_state,
+                    recent_actions_text=enhanced_context
+                )
+            else:
+                # Initial cycle - single screenshot analysis
+                return self.llm_client.analyze_game_state(
+                    screenshot_path=current_screenshot,
+                    game_state=game_state,
+                    recent_actions_text=enhanced_context
+                )
+                
+        except Exception as e:
+            print(f"❌ AI API call error: {e}")
+            return {
+                "text": f"AI call failed: {str(e)}",
+                "actions": ["A"],
+                "success": False,
+                "error": str(e)
+            }
     
     def _load_config(self) -> Optional[Dict[str, Any]]:
         """Load configuration from SQLite database"""
@@ -671,7 +882,7 @@ class AIGameService(threading.Thread):
             print(f"❌ Error loading config: {e}")
             return None
     
-    def _call_ai_api(self, screenshot_path: str, game_state: Dict[str, Any], config: Dict[str, Any], recent_actions_text: str = "") -> Dict[str, Any]:
+    def _call_ai_api(self, screenshot_path: str, game_state: Dict[str, Any], config: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> Dict[str, Any]:
         """Call AI API with screenshot and game state"""
         try:
             # Initialize LLM client if needed
@@ -682,7 +893,7 @@ class AIGameService(threading.Thread):
             print(f"🤖 Calling {config.get('llm_provider', 'unknown')} API...")
             start_time = time.time()
             
-            result = self.llm_client.analyze_game_state(screenshot_path, game_state, recent_actions_text)
+            result = self.llm_client.analyze_game_state(screenshot_path, game_state, recent_actions_text, before_after_analysis)
             
             elapsed = time.time() - start_time
             print(f"⏱️ AI response received in {elapsed:.1f}s")
@@ -1318,6 +1529,24 @@ class AIGameService(threading.Thread):
                 analysis.append(f"📈 Movement trend: X-axis {x_trend}, Y-axis {y_trend}")
         
         return "\n".join(analysis) if len(analysis) > 1 else ""
+    
+    
+    
+    
+    def _encode_screenshot_for_chat(self, screenshot_path: str) -> str:
+        """Encode screenshot as base64 for chat display"""
+        try:
+            if os.path.exists(screenshot_path):
+                with open(screenshot_path, 'rb') as f:
+                    image_data = f.read()
+                    encoded = base64.b64encode(image_data).decode('utf-8')
+                    return f"data:image/png;base64,{encoded}"
+            else:
+                print(f"⚠️ Screenshot file not found: {screenshot_path}")
+                return ""
+        except Exception as e:
+            print(f"⚠️ Error encoding screenshot: {e}")
+            return ""
     
     def _cleanup(self):
         """Clean up resources"""

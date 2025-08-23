@@ -4,9 +4,8 @@ Handles API calls to different LLM providers with error handling and timeouts.
 """
 
 import os
-import time
 import base64
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any
 import json
 import traceback
 from datetime import datetime
@@ -23,7 +22,9 @@ class LLMClient:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.provider = config.get('llm_provider', 'google')
+        # Map provider names (UI uses 'gemini', client uses 'google')
+        provider_mapping = {'gemini': 'google', 'google': 'google', 'openai': 'openai', 'anthropic': 'anthropic'}
+        self.provider = provider_mapping.get(config.get('llm_provider', 'google'), 'google')
         self.providers_config = config.get('providers', {})
         self.timeout = config.get('llm_timeout_seconds', 30)
         
@@ -144,7 +145,7 @@ class LLMClient:
             print(f"❌ Error loading prompt template: {e}")
             self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
     
-    def analyze_game_state(self, screenshot_path: str, game_state: Dict[str, Any], recent_actions_text: str = "") -> Dict[str, Any]:
+    def analyze_game_state(self, screenshot_path: str, game_state: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> Dict[str, Any]:
         """
         Analyze game state and return AI decision with enhanced processing
         
@@ -166,8 +167,8 @@ class LLMClient:
                     "error": f"Screenshot file not found: {screenshot_path}"
                 }
             
-            # Create enhanced game context with recent actions
-            context = self._create_game_context(game_state, recent_actions_text)
+            # Create enhanced game context with recent actions and before/after analysis
+            context = self._create_game_context(game_state, recent_actions_text, before_after_analysis)
             
             # Call appropriate LLM provider
             if self.provider == 'google':
@@ -187,7 +188,309 @@ class LLMClient:
                 "error": str(e)
             }
     
-    def _create_game_context(self, game_state: Dict[str, Any], recent_actions_text: str = "") -> str:
+    def analyze_game_state_with_comparison(self, current_screenshot: str, previous_screenshot: str, 
+                                         game_state: Dict[str, Any], recent_actions_text: str = "") -> Dict[str, Any]:
+        """
+        Analyze game state with previous screenshot comparison - LLM does the analysis
+        
+        Returns:
+            {
+                "text": "AI reasoning + comparison analysis",
+                "actions": ["UP"],
+                "success": True/False,
+                "error": "error message if failed"
+            }
+        """
+        try:
+            # Load and enhance both screenshots
+            if not os.path.exists(current_screenshot):
+                return {
+                    "text": "Current screenshot not found",
+                    "actions": ["A"],
+                    "success": False,
+                    "error": f"Current screenshot not found: {current_screenshot}"
+                }
+            
+            if not os.path.exists(previous_screenshot):
+                # Fallback to single screenshot analysis
+                return self.analyze_game_state(current_screenshot, game_state, recent_actions_text)
+            
+            # Create enhanced game context for comparison
+            context = self._create_comparison_context(game_state, recent_actions_text)
+            
+            # Call appropriate LLM provider with both images
+            if self.provider == 'google':
+                return self._call_google_api_with_comparison(previous_screenshot, current_screenshot, context)
+            elif self.provider == 'openai':
+                return self._call_openai_api_with_comparison(previous_screenshot, current_screenshot, context)
+            else:
+                return self._fallback_response(context, "Unsupported provider for comparison")
+                
+        except Exception as e:
+            print(f"❌ LLM comparison analysis error: {e}")
+            traceback.print_exc()
+            return {
+                "text": f"AI comparison analysis failed: {str(e)}",
+                "actions": ["A"],
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _create_comparison_context(self, game_state: Dict[str, Any], recent_actions_text: str = "") -> str:
+        """Create context for screenshot comparison analysis"""
+        # Check for template updates (hot-reload)
+        self._load_prompt_template()
+        
+        position = game_state.get('position', {})
+        x, y = position.get('x', 0), position.get('y', 0)
+        direction = game_state.get('direction', 'UNKNOWN')
+        map_id = game_state.get('map_id', 0)
+        
+        # Enhanced spatial context with coordinate intelligence
+        spatial_context = f"""## Current Location & Spatial Awareness
+You are in {self._get_map_name(map_id)}
+Position: X={x}, Y={y}
+Direction: {direction}
+Map ID: {map_id}
+
+**IMPORTANT: Use these coordinates for intelligent navigation!**
+- Lower X values = LEFT, Higher X values = RIGHT
+- Lower Y values = UP, Higher Y values = DOWN
+- **CRITICAL MOVEMENT MECHANICS**: 
+  * **Turning**: 2 frames changes facing direction (no coordinate movement)
+  * **Moving**: 30 frames moves 1 coordinate unit (only if already facing that direction)
+  * **Total movement**: Turn (2 frames) + Move (30×units frames) if changing direction
+  * **Same direction**: Just 30×units frames if already facing the right way"""
+        
+        # Enhanced direction guidance based on position and movement patterns
+        direction_guidance = self._get_direction_guidance_text(direction, x, y, map_id)
+        
+        # Load notepad content with caching for performance
+        notepad_content = self._read_notepad()
+        
+        # Get memory context from Graphiti
+        current_map = self._get_map_name(map_id)
+        memory_context = self._get_memory_context(current_map, x, y, direction, map_id)
+        
+        # Substitute variables in the template for comparison analysis
+        try:
+            context = self.prompt_template.format(
+                spatial_context=spatial_context,
+                recent_actions=recent_actions_text,
+                direction_guidance=direction_guidance,
+                notepad_content=notepad_content,
+                memory_context=memory_context,
+                before_after_analysis="**COMPARE THE TWO SCREENSHOTS**: Analyze what changed between the previous screenshot (before your last actions) and the current screenshot (after your actions). Did your actions have the intended effect?"
+            )
+            return context
+        except KeyError as e:
+            print(f"❌ Template variable error: {e}")
+            # Return minimal context if template has issues
+            return f"Compare these two screenshots and choose your next action.\n\nPosition: ({x}, {y}) facing {direction}\n{recent_actions}"
+    
+    def _call_google_api_with_comparison(self, previous_screenshot: str, current_screenshot: str, context: str) -> Dict[str, Any]:
+        """Call Google Gemini API with two screenshots for comparison"""
+        try:
+            if not self.google_client:
+                return self._fallback_response(context, "Google client not initialized")
+            
+            # Load and enhance both images
+            previous_image = self._enhance_image(previous_screenshot)
+            current_image = self._enhance_image(current_screenshot)
+            
+            # Convert enhanced PIL images to bytes
+            import io
+            
+            prev_bytes = io.BytesIO()
+            previous_image.save(prev_bytes, format='PNG')
+            prev_data = prev_bytes.getvalue()
+            
+            curr_bytes = io.BytesIO()
+            current_image.save(curr_bytes, format='PNG')
+            curr_data = curr_bytes.getvalue()
+            
+            # Create model
+            model_name = self.providers_config.get('google', {}).get('model_name', 'gemini-2.0-flash-exp')
+            model = self.google_client.GenerativeModel(model_name)
+            
+            # Create image parts
+            previous_image_part = {
+                'mime_type': 'image/png',
+                'data': prev_data
+            }
+            
+            current_image_part = {
+                'mime_type': 'image/png', 
+                'data': curr_data
+            }
+            
+            # Enhanced prompt for comparison analysis
+            prompt = """PREVIOUS SCREENSHOT (before your last actions):
+[Image 1 shows the game state before your previous button sequence]
+
+CURRENT SCREENSHOT (after your last actions):  
+[Image 2 shows the game state after your previous button sequence]
+
+""" + context + """
+
+**IMPORTANT**: 
+1. Compare the two screenshots to see what changed
+2. Follow the 5-step Response Format (Analyze → Describe → Learn → Plan → Execute)
+3. Include comparison analysis in your reasoning
+4. Use press_button_sequence tool for your next actions
+"""
+            
+            # Define tools (same as single screenshot method)
+            tools = self._get_google_tools()
+            
+            # Generate response with both images
+            print(f"🌐 Sending comparison request to Google Gemini API...")
+            response = model.generate_content(
+                [prompt, previous_image_part, current_image_part],
+                tools=tools,
+                generation_config={'temperature': 0.7}
+            )
+            print(f"📡 Received comparison response from Google Gemini API")
+            
+            # Use the complete parsing logic from _call_google_api
+            response_text = ""
+            actions = ["A"]  # Default action
+            durations = []  # Default durations
+            notepad_update = None
+            
+            print(f"🔍 Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
+            if response.candidates:
+                candidate = response.candidates[0]
+                
+                # Get text content and tool calls
+                if hasattr(candidate.content, 'parts'):
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            response_text += part.text
+                        if hasattr(part, 'function_call') and part.function_call:
+                            # Extract function calls
+                            if part.function_call.name == "press_button_sequence":
+                                # Extract actions from Google's nested structure
+                                args_to_check = part.function_call.args
+                                
+                                # Handle both 'fields' and direct access patterns
+                                if hasattr(args_to_check, 'fields') and 'actions' in args_to_check.fields:
+                                    actions_field = args_to_check.fields['actions']
+                                elif 'actions' in args_to_check:
+                                    actions_field = args_to_check['actions']
+                                else:
+                                    actions_field = None
+                                
+                                if actions_field:
+                                    # Handle Google's list_value structure
+                                    if hasattr(actions_field, 'list_value') and hasattr(actions_field.list_value, 'values'):
+                                        actions = [val.string_value for val in actions_field.list_value.values if hasattr(val, 'string_value')]
+                                    # Handle direct value access
+                                    elif hasattr(actions_field, 'value') and hasattr(actions_field.value, 'list_value'):
+                                        actions = [val.string_value for val in actions_field.value.list_value.values if hasattr(val, 'string_value')]
+                                    else:
+                                        # Fallback: try direct conversion
+                                        try:
+                                            actions = list(actions_field)
+                                        except:
+                                            actions = ["A"]  # Fallback
+                                    
+                                    # Extract durations if provided
+                                    durations_field = None
+                                    if hasattr(args_to_check, 'fields') and 'durations' in args_to_check.fields:
+                                        durations_field = args_to_check.fields['durations']
+                                    elif 'durations' in args_to_check:
+                                        durations_field = args_to_check['durations']
+                                    
+                                    if durations_field:
+                                        # Handle Google's list_value structure for durations
+                                        if hasattr(durations_field, 'list_value') and hasattr(durations_field.list_value, 'values'):
+                                            durations = [int(val.number_value) for val in durations_field.list_value.values if hasattr(val, 'number_value')]
+                                        elif hasattr(durations_field, 'value') and hasattr(durations_field.value, 'list_value'):
+                                            durations = [int(val.number_value) for val in durations_field.value.list_value.values if hasattr(val, 'number_value')]
+                                        else:
+                                            # Fallback: try direct conversion
+                                            try:
+                                                durations = [int(d) for d in durations_field]
+                                            except:
+                                                durations = []  # Will use defaults
+                                    
+                                    print(f"🎮 Extracted from function call - Actions: {actions}, Durations: {durations}")
+                            
+                            elif part.function_call.name == "update_notepad":
+                                # Handle notepad updates
+                                args = part.function_call.args
+                                if hasattr(args, 'fields') and 'content' in args.fields:
+                                    notepad_update = args.fields['content'].string_value
+                                elif 'content' in args:
+                                    notepad_update = args['content']
+            
+            # Handle notepad updates if requested
+            if notepad_update:
+                self._update_notepad(notepad_update)
+            
+            return {
+                "text": response_text if response_text else "AI analyzed screenshots and chose action.",
+                "actions": actions,
+                "durations": durations,
+                "success": True,
+                "error": None
+            }
+                
+        except Exception as e:
+            print(f"❌ Google API comparison error: {e}")
+            traceback.print_exc()
+            return self._fallback_response(context, f"Google API error: {str(e)}")
+    
+    def _get_google_tools(self):
+        """Get Google API tools definition"""
+        return [
+            self.google_client.protos.Tool(
+                function_declarations=[
+                    self.google_client.protos.FunctionDeclaration(
+                        name="press_button_sequence",
+                        description="Press a sequence of buttons on the Game Boy emulator with optional custom durations",
+                        parameters=self.google_client.protos.Schema(
+                            type=self.google_client.protos.Type.OBJECT,
+                            properties={
+                                "actions": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.ARRAY,
+                                    items=self.google_client.protos.Schema(
+                                        type=self.google_client.protos.Type.STRING,
+                                        enum=["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
+                                    ),
+                                    description="Array of buttons to press in sequence"
+                                ),
+                                "durations": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.ARRAY,
+                                    items=self.google_client.protos.Schema(
+                                        type=self.google_client.protos.Type.INTEGER
+                                    ),
+                                    description="Optional array of durations (in frames, 60fps) for each button. Default is 2 frames if not specified."
+                                )
+                            },
+                            required=["actions"]
+                        )
+                    ),
+                    self.google_client.protos.FunctionDeclaration(
+                        name="update_notepad",
+                        description="Update the AI's long-term memory with new information about the game state",
+                        parameters=self.google_client.protos.Schema(
+                            type=self.google_client.protos.Type.OBJECT,
+                            properties={
+                                "content": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    description="Content to add to the notepad. Only include important information about game progress, objectives, or status."
+                                )
+                            },
+                            required=["content"]
+                        )
+                    )
+                ]
+            )
+        ]
+    
+    def _create_game_context(self, game_state: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> str:
         """Create enhanced context string for LLM using optimized template"""
         # Check for template updates (hot-reload)
         self._load_prompt_template()
@@ -223,7 +526,8 @@ class LLMClient:
                 recent_actions=recent_actions_text,
                 direction_guidance=direction_guidance,
                 notepad_content=notepad_content,
-                memory_context=memory_context
+                memory_context=memory_context,
+                before_after_analysis=before_after_analysis
             )
         except KeyError as e:
             print(f"⚠️ Missing template variable {e}, using fallback context")
@@ -292,14 +596,13 @@ Map ID: {map_id}
             # Enhanced prompt with tool definition
             prompt = context + """
 
-Use the press_button_sequence tool to indicate your chosen actions. You can press multiple buttons in sequence with custom durations.
+**IMPORTANT**: Follow the 5-step Response Format above (Analyze → Describe → Learn → Plan → Execute), then use the press_button_sequence tool to execute your planned actions.
 
-Examples:
-- Single button: press_button_sequence(actions=["UP"])
-- Multiple buttons: press_button_sequence(actions=["UP", "UP", "A"])
-- With durations: press_button_sequence(actions=["UP", "A"], durations=[10, 5])
-
-Duration is in frames (60 frames = 1 second). Default duration is 2 frames if not specified.
+Tool usage:
+- press_button_sequence(actions=["UP"]) - Single button
+- press_button_sequence(actions=["UP", "UP", "A"]) - Multiple buttons  
+- press_button_sequence(actions=["UP", "A"], durations=[10, 5]) - With custom durations
+Duration is in frames (60fps). Default=2 frames if not specified.
 """
 
             # Log prompt statistics for token optimization tracking
@@ -309,66 +612,24 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
             print(f"📊 Prompt Stats: {prompt_chars} chars, {prompt_words} words, ~{estimated_tokens:.0f} tokens (estimated)")
 
             # Define tools (including both press_button and update_notepad)
-            tools = [
-                self.google_client.protos.Tool(
-                    function_declarations=[
-                        self.google_client.protos.FunctionDeclaration(
-                            name="press_button_sequence",
-                            description="Press a sequence of buttons on the Game Boy emulator with optional custom durations",
-                            parameters=self.google_client.protos.Schema(
-                                type=self.google_client.protos.Type.OBJECT,
-                                properties={
-                                    "actions": self.google_client.protos.Schema(
-                                        type=self.google_client.protos.Type.ARRAY,
-                                        items=self.google_client.protos.Schema(
-                                            type=self.google_client.protos.Type.STRING,
-                                            enum=["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
-                                        ),
-                                        description="Array of buttons to press in sequence"
-                                    ),
-                                    "durations": self.google_client.protos.Schema(
-                                        type=self.google_client.protos.Type.ARRAY,
-                                        items=self.google_client.protos.Schema(
-                                            type=self.google_client.protos.Type.INTEGER
-                                        ),
-                                        description="Optional array of durations (in frames, 60fps) for each button. Default is 2 frames if not specified."
-                                    )
-                                },
-                                required=["actions"]
-                            )
-                        ),
-                        self.google_client.protos.FunctionDeclaration(
-                            name="update_notepad",
-                            description="Update the AI's long-term memory with new information about the game state",
-                            parameters=self.google_client.protos.Schema(
-                                type=self.google_client.protos.Type.OBJECT,
-                                properties={
-                                    "content": self.google_client.protos.Schema(
-                                        type=self.google_client.protos.Type.STRING,
-                                        description="Content to add to the notepad. Only include important information about game progress, objectives, or status."
-                                    )
-                                },
-                                required=["content"]
-                            )
-                        )
-                    ]
-                )
-            ]
+            tools = self._get_google_tools()
             
             # Generate response
+            print(f"🌐 Sending request to Google Gemini API...")
             response = model.generate_content(
                 [prompt, image_part],
                 tools=tools,
                 generation_config={'temperature': 0.7}
             )
+            print(f"📡 Received response from Google Gemini API")
             
             # Parse response
             response_text = ""
             actions = ["A"]  # Default action
             durations = []  # Default durations
             notepad_update = None
-            tool_call_found = False
             
+            print(f"🔍 Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
             if response.candidates:
                 candidate = response.candidates[0]
                 
@@ -378,7 +639,6 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
                         if hasattr(part, 'text') and part.text:
                             response_text += part.text
                         if hasattr(part, 'function_call') and part.function_call:
-                            tool_call_found = True
                             # Extract function calls
                             if part.function_call.name == "press_button_sequence":
                                 # Extract actions from Google's nested structure
@@ -516,6 +776,8 @@ Duration is in frames (60 frames = 1 second). Default duration is 2 frames if no
             
         except Exception as e:
             print(f"❌ Google API error: {e}")
+            import traceback
+            print(f"🔍 Full error details: {traceback.format_exc()}")
             return self._fallback_response(context, str(e))
     
     def _call_openai_api(self, screenshot_path: str, context: str) -> Dict[str, Any]:
