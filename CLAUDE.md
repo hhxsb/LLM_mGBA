@@ -435,3 +435,189 @@ The simplified system is designed with these principles:
 The system represents a **major architectural simplification** optimized for reliability and maintainability.
 
 **Quick Start**: `cd ai_gba_player && python manage.py runserver` → http://localhost:8000 🚀
+
+## Coding Conventions
+
+This project follows strict coding standards to ensure maintainability, testability, and clean architecture:
+
+### 1. Object-Oriented Design (OOP)
+**Principle**: Proper encapsulation - functions must belong to the right class with clear responsibilities.
+
+**Rules**:
+- ✅ **Single Responsibility**: Each class has one clear purpose
+- ✅ **Proper Encapsulation**: Private methods use `_` prefix, internal methods use `__` prefix
+- ✅ **Method Placement**: Functions must belong to appropriate classes, not scattered as standalone functions
+- ✅ **Interface Design**: Public methods provide clear APIs, implementation details are private
+
+**Examples**:
+```python
+# ✅ GOOD: Proper encapsulation
+class ScreenshotManager:
+    def __init__(self, base_path: str):
+        self._base_path = Path(base_path)
+        self._current_sequence = 0
+        
+    def capture_screenshot(self) -> str:
+        """Public API for screenshot capture"""
+        filename = self._generate_filename()
+        return self._save_screenshot(filename)
+    
+    def _generate_filename(self) -> str:
+        """Private method - implementation detail"""
+        self._current_sequence += 1
+        return f"screenshot_{self._current_sequence:06d}.png"
+
+# ❌ BAD: Scattered functions
+def generate_screenshot_filename():  # Should be in ScreenshotManager
+    pass
+
+def validate_file_size(path):  # Should be in FileValidator class
+    pass
+```
+
+### 2. Testing Strategy
+**Principle**: Unit tests with mocks > integration test scripts.
+
+**Rules**:
+- ✅ **Unit Tests**: Use Django's TestCase with proper mocking
+- ✅ **Mock External Dependencies**: Socket connections, file I/O, LLM APIs
+- ✅ **Test Coverage**: Each public method must have corresponding tests
+- ✅ **Fast Tests**: Tests run in <1 second each, no real network calls
+
+**File Organization**:
+```
+ai_gba_player/
+├── dashboard/
+│   ├── tests/                    # ✅ Proper test structure
+│   │   ├── __init__.py
+│   │   ├── test_ai_game_service.py
+│   │   ├── test_llm_client.py
+│   │   └── test_models.py
+│   ├── ai_game_service.py
+│   └── llm_client.py
+└── dev-tools/
+    └── integration_tests/        # ✅ Separate integration tests
+        └── test_end_to_end.py
+```
+
+**Examples**:
+```python
+# ✅ GOOD: Unit test with mocks
+class TestAIGameService(TestCase):
+    @patch('socket.socket')
+    @patch('dashboard.llm_client.LLMClient')
+    def test_handle_screenshot_request(self, mock_llm, mock_socket):
+        service = AIGameService()
+        mock_llm.return_value.analyze_game_state.return_value = {
+            'actions': ['UP'], 'success': True
+        }
+        
+        result = service._handle_screenshot_data("test_path")
+        
+        self.assertEqual(result, "0,0,4")  # UP action
+        mock_llm.return_value.analyze_game_state.assert_called_once()
+
+# ❌ BAD: Integration test script
+def test_real_mgba_connection():  # Should be mocked unit test
+    service = AIGameService()
+    service.start()  # Real socket connection
+    # Test with real mGBA...
+```
+
+### 3. File Size Limits
+**Principle**: No single file > 2000 lines for maintainability.
+
+**Rules**:
+- ✅ **Hard Limit**: 2000 lines maximum per file
+- ✅ **Soft Target**: 500-1000 lines per file
+- ✅ **Logical Separation**: Split by functionality, not arbitrarily
+- ✅ **Clear Imports**: Related classes can be split across files with clear import structure
+
+**Refactoring Strategy**:
+```python
+# Before: monolithic llm_client.py (3000+ lines)
+# After: Split into focused modules
+
+dashboard/
+├── llm/
+│   ├── __init__.py
+│   ├── client.py           # Core LLMClient (~800 lines)
+│   ├── providers.py        # Provider-specific code (~600 lines)
+│   ├── image_processing.py # Image enhancement (~400 lines)
+│   └── context_builder.py  # Prompt context logic (~500 lines)
+```
+
+### 4. Code Quality Standards
+
+**Import Organization**:
+```python
+# Standard library imports
+import os
+import sys
+from pathlib import Path
+
+# Third-party imports
+import django
+from django.test import TestCase
+
+# Local application imports
+from dashboard.models import Configuration
+from dashboard.llm.client import LLMClient
+```
+
+**Error Handling**:
+```python
+# ✅ GOOD: Specific exceptions with context
+class ScreenshotNotFoundError(Exception):
+    """Raised when screenshot file is not available after timeout"""
+    pass
+
+def wait_for_screenshot(self, path: str) -> bool:
+    try:
+        return self._validate_file(path)
+    except FileNotFoundError as e:
+        raise ScreenshotNotFoundError(f"Screenshot not ready: {path}") from e
+```
+
+**Documentation**:
+```python
+def analyze_game_state(self, screenshot_path: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyze game state from screenshot using LLM.
+    
+    Args:
+        screenshot_path: Absolute path to screenshot file
+        context: Game state context (position, direction, etc.)
+        
+    Returns:
+        Dict containing:
+            - text: AI reasoning
+            - actions: List of button actions
+            - success: Boolean success flag
+            - error: Error message if failed
+            
+    Raises:
+        ScreenshotNotFoundError: If screenshot is not available after timeout
+        LLMAPIError: If LLM API call fails
+    """
+```
+
+### 5. Refactoring Priorities
+
+**Immediate Actions**:
+1. **Split Large Files**: Any file >2000 lines needs immediate refactoring
+2. **Extract Service Classes**: Move standalone functions into appropriate service classes
+3. **Add Unit Tests**: Replace integration test scripts with proper unit tests
+4. **Improve Encapsulation**: Make implementation details private
+
+**File Size Monitoring**:
+```bash
+# Check current file sizes
+find . -name "*.py" -exec wc -l {} + | sort -nr | head -10
+
+# Target files likely >2000 lines:
+# - llm_client.py
+# - ai_game_service.py  
+# - Any generated Django migrations
+```
+
+These conventions ensure the codebase remains maintainable, testable, and follows Python/Django best practices.

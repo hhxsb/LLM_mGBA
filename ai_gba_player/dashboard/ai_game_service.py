@@ -1727,74 +1727,11 @@ class AIGameService(threading.Thread):
                 pass
 
 
-# Global service instance
-_ai_service_instance = None
-
-
-def get_ai_service() -> Optional[AIGameService]:
-    """Get the current AI service instance"""
-    global _ai_service_instance
-    return _ai_service_instance
-
-
-def start_ai_service() -> bool:
-    """Start the AI service"""
-    global _ai_service_instance
-    
-    try:
-        if _ai_service_instance and _ai_service_instance.is_alive():
-            print("⚠️ AI service is already running")
-            return True
-        
-        _ai_service_instance = AIGameService()
-        _ai_service_instance.start()
-        
-        # Give it a moment to start
-        time.sleep(0.5)
-        
-        print("✅ AI service started successfully")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to start AI service: {e}")
-        return False
-
-
-def stop_ai_service() -> bool:
-    """Stop the AI service"""
-    global _ai_service_instance
-    
-    try:
-        if _ai_service_instance:
-            _ai_service_instance.stop()
-            _ai_service_instance = None
-        
-        print("✅ AI service stopped")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to stop AI service: {e}")
-        return False
-
-
-def is_ai_service_running() -> bool:
-    """Check if AI service is running"""
-    global _ai_service_instance
-    return _ai_service_instance is not None and _ai_service_instance.is_alive()
-
-
-def reload_ai_service_timing_config() -> bool:
-    """Reload timing configuration in the running AI service"""
-    global _ai_service_instance
-    
-    try:
-        if _ai_service_instance and _ai_service_instance.is_alive():
-            _ai_service_instance.reload_timing_config()
-            print("✅ AI service timing configuration reloaded")
-            return True
-        else:
-            print("⚠️ AI service is not running - cannot reload timing config")
-            return False
-    except Exception as e:
-        print(f"❌ Failed to reload AI service timing config: {e}")
-        return False
+# Import service manager for backward compatibility
+from .service_manager import (
+    get_ai_service,
+    start_ai_service, 
+    stop_ai_service,
+    is_ai_service_running,
+    reload_ai_service_timing_config
+)
