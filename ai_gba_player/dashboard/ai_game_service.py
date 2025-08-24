@@ -54,8 +54,10 @@ class AIGameService(threading.Thread):
         # Screenshot tracking with sorted map and storage optimization
         self.screenshot_map = {}  # {filename: creation_time}
         self.max_screenshots = 10  # Keep only 10 most recent screenshots
+        self.screenshot_counter = 0  # Sequential counter for registration order
         self.screenshot_dir = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/screenshots")
         self.current_screenshot_path = None
+        self.next_screenshot_path = None  # Path where next screenshot will be saved
         self._initialize_screenshot_tracking()
         
         # Message buffering for handling partial messages
@@ -136,30 +138,45 @@ class AIGameService(threading.Thread):
             self.memory_system = None
     
     def _initialize_screenshot_tracking(self):
-        """Initialize screenshot tracking by scanning existing files"""
+        """Initialize screenshot tracking with complete folder cleanup and controlled naming"""
         try:
             if not self.screenshot_dir.exists():
                 self.screenshot_dir.mkdir(parents=True, exist_ok=True)
                 print(f"📁 Created screenshot directory: {self.screenshot_dir}")
                 return
             
-            # Scan existing screenshot files and build the map
-            screenshot_files = list(self.screenshot_dir.glob("screenshot*.png"))
+            # Perform complete cleanup of screenshot folder
+            print("🧹 Starting comprehensive screenshot folder cleanup...")
+            self._cleanup_all_screenshots()
             
-            for file_path in screenshot_files:
-                try:
-                    creation_time = file_path.stat().st_mtime
-                    self.screenshot_map[str(file_path)] = creation_time
-                except Exception as e:
-                    print(f"⚠️ Error reading file stats for {file_path}: {e}")
-            
-            print(f"📊 Found {len(self.screenshot_map)} existing screenshots")
-            
-            # Clean up excess screenshots immediately
-            self._cleanup_old_screenshots()
+            # Initialize clean state
+            self.screenshot_map = {}
+            self.screenshot_counter = 0
+            print(f"✅ Screenshot folder cleaned - ready for controlled naming")
             
         except Exception as e:
             print(f"❌ Error initializing screenshot tracking: {e}")
+    
+    def _cleanup_all_screenshots(self):
+        """Remove all screenshots from the directory for a clean start"""
+        try:
+            removed_count = 0
+            
+            # Find all screenshot files (any format)
+            for pattern in ["*.png", "*.jpg", "*.jpeg"]:
+                screenshot_files = list(self.screenshot_dir.glob(pattern))
+                for file_path in screenshot_files:
+                    try:
+                        file_path.unlink()  # Delete the file
+                        print(f"🗑️ Removed: {file_path.name}")
+                        removed_count += 1
+                    except Exception as e:
+                        print(f"⚠️ Error removing {file_path.name}: {e}")
+            
+            print(f"✅ Complete cleanup: removed {removed_count} screenshot files")
+            
+        except Exception as e:
+            print(f"❌ Error during complete screenshot cleanup: {e}")
     
     def _cleanup_old_screenshots(self):
         """Remove old screenshots, keeping only the most recent ones"""
@@ -195,11 +212,50 @@ class AIGameService(threading.Thread):
         except Exception as e:
             print(f"❌ Error during screenshot cleanup: {e}")
     
+    def _cleanup_legacy_screenshots(self):
+        """Remove old mixed-format screenshot files to prevent confusion"""
+        try:
+            # Find and remove legacy screenshot files
+            legacy_patterns = [
+                "screenshot.png",
+                "previous_screenshot.png", 
+                "test_screenshot.png",
+                "screenshot_before_*.png",
+                "screenshot_after_*.png"
+            ]
+            
+            removed_count = 0
+            for pattern in legacy_patterns:
+                legacy_files = list(self.screenshot_dir.glob(pattern))
+                for file_path in legacy_files:
+                    try:
+                        os.remove(file_path)
+                        print(f"🗑️ Removed legacy file: {os.path.basename(file_path)}")
+                        removed_count += 1
+                    except Exception as e:
+                        print(f"⚠️ Error removing {file_path}: {e}")
+            
+            if removed_count > 0:
+                print(f"✅ Legacy cleanup: removed {removed_count} old screenshot files")
+            else:
+                print(f"✅ Legacy cleanup: no old files to remove")
+                
+        except Exception as e:
+            print(f"❌ Error during legacy screenshot cleanup: {e}")
+    
     def _register_new_screenshot(self, screenshot_path: str):
         """Register a new screenshot in the tracking map and clean up if needed"""
         try:
             if os.path.exists(screenshot_path):
-                creation_time = os.path.getmtime(screenshot_path)
+                # Screenshot is already at the controlled path with controlled naming
+                creation_time = self.screenshot_counter  # Use counter for deterministic ordering
+                
+                # Debug: show what we're registering
+                print(f"🔧 Registering controlled screenshot:")
+                print(f"   📁 Path: {screenshot_path}")
+                print(f"   📊 Counter: {creation_time}")
+                print(f"   📊 Map size before: {len(self.screenshot_map)}")
+                
                 self.screenshot_map[screenshot_path] = creation_time
                 
                 # Update current screenshot
@@ -207,12 +263,16 @@ class AIGameService(threading.Thread):
                 
                 # Clean up old screenshots if we exceed the limit
                 if len(self.screenshot_map) > self.max_screenshots:
+                    print(f"🧹 Triggering cleanup - {len(self.screenshot_map)} > {self.max_screenshots}")
                     self._cleanup_old_screenshots()
                 
                 print(f"📸 Registered: {os.path.basename(screenshot_path)} (total: {len(self.screenshot_map)})")
                 
+                return screenshot_path
+                
         except Exception as e:
             print(f"❌ Error registering screenshot: {e}")
+            return screenshot_path  # Return original path as fallback
     
     def _get_latest_screenshots(self) -> tuple[str, str]:
         """Get the two most recent screenshots for before/after comparison"""
@@ -499,19 +559,19 @@ class AIGameService(threading.Thread):
         if not self.game_config_sent:
             self._send_chat_message("system", "✅ mGBA ready - detecting game and sending config...")
             self._detect_and_configure_game()
-            
-            # Wait a moment for config to be processed before requesting screenshot
-            time.sleep(0.5)
+            # DO NOT request screenshot yet - wait for config_loaded confirmation
         else:
             self._send_chat_message("system", "✅ mGBA ready - resuming gameplay")
-        
-        # Request screenshot
-        self._request_screenshot()
+            # Only request screenshot if game config was already sent and loaded
+            self._request_screenshot()
     
     def _handle_config_loaded_message(self):
         """Handle confirmation that Lua script loaded the game config"""
         print("✅ Game configuration loaded by mGBA")
         self._send_chat_message("system", "✅ Game configuration loaded successfully")
+        
+        # Now that config is confirmed loaded, we can safely request screenshots
+        self._request_screenshot()
         self.game_config_sent = True
     
     def _handle_config_error_message(self, message: str):
@@ -570,7 +630,7 @@ class AIGameService(threading.Thread):
             lua_config = self.game_detector.format_game_config_for_lua(detected_game_id)
             if lua_config:
                 self._send_game_config_to_lua(lua_config)
-                self.game_config_sent = True
+                # Don't set game_config_sent=True yet - wait for confirmation from mGBA
             else:
                 self._send_chat_message("system", "❌ Failed to format game config for Lua")
                 
@@ -630,27 +690,65 @@ class AIGameService(threading.Thread):
             # "enhanced_screenshot_with_state||path||previousPath||direction||x||y||mapId||buttonCount" (8 parts)
             parts = message.split("||")
             
-            # Validate message format
-            if len(parts) < 6:
+            # Validate message format (allow 5+ parts for controlled naming, 6+ for legacy)
+            if len(parts) < 5:
                 print(f"⚠️ Invalid screenshot data format: {message}")
-                print(f"🔍 Expected 6+ parts, got {len(parts)}: {parts}")
+                print(f"🔍 Expected 5+ parts, got {len(parts)}: {parts}")
                 return
             
             message_type = parts[0]
             
-            # Parse based on message type
-            if message_type == "screenshot_with_state" and len(parts) >= 6:
-                screenshot_path = parts[1]
-                direction = parts[2]
-                x_str, y_str, map_id_str = parts[3], parts[4], parts[5]
-            elif message_type == "enhanced_screenshot_with_state" and len(parts) >= 8:
-                screenshot_path = parts[1]
-                # parts[2] is previousPath (not used for AI processing)
-                direction = parts[3]
-                x_str, y_str, map_id_str = parts[4], parts[5], parts[6]
-                # parts[7] is buttonCount (not used for AI processing)
+            # Parse based on message type with backwards compatibility
+            if message_type == "screenshot_with_state":
+                if len(parts) >= 6:
+                    # Old format: "screenshot_with_state||path||direction||x||y||mapId"
+                    screenshot_path = parts[1]
+                    direction = parts[2]
+                    x_str, y_str, map_id_str = parts[3], parts[4], parts[5]
+                    print("📷 Using legacy screenshot format (path provided by mGBA)")
+                elif len(parts) >= 5 and self.next_screenshot_path:
+                    # New format: "screenshot_with_state||direction||x||y||mapId" (controlled path)
+                    direction = parts[1]
+                    x_str, y_str, map_id_str = parts[2], parts[3], parts[4]
+                    screenshot_path = self.next_screenshot_path
+                    print("📷 Using controlled screenshot format (path managed by AI service)")
+                else:
+                    print(f"⚠️ Invalid screenshot_with_state format: {len(parts)} parts, expected 5+ with controlled naming or 6+ with legacy naming")
+                    return
+            elif message_type == "enhanced_screenshot_with_state":
+                if len(parts) >= 8:
+                    # Old format: "enhanced_screenshot_with_state||path||previousPath||direction||x||y||mapId||buttonCount"
+                    screenshot_path = parts[1]
+                    direction = parts[3]
+                    x_str, y_str, map_id_str = parts[4], parts[5], parts[6]
+                    print("📷 Using legacy enhanced screenshot format (path provided by mGBA)")
+                elif len(parts) >= 6 and self.next_screenshot_path:
+                    # New format: "enhanced_screenshot_with_state||direction||x||y||mapId||buttonCount"
+                    direction = parts[1]
+                    x_str, y_str, map_id_str = parts[2], parts[3], parts[4]
+                    screenshot_path = self.next_screenshot_path
+                    print("📷 Using controlled enhanced screenshot format (path managed by AI service)")
+                else:
+                    print(f"⚠️ Invalid enhanced_screenshot_with_state format: {len(parts)} parts")
+                    return
+            elif message_type == "screenshot_error":
+                # Handle screenshot creation errors from mGBA
+                error_message = parts[1] if len(parts) > 1 else "Unknown error"
+                print(f"❌ Screenshot error from mGBA: {error_message}")
+                self._send_chat_message("system", f"❌ Screenshot failed: {error_message}")
+                
+                # Reset screenshot path and request a new screenshot after delay
+                self.next_screenshot_path = None
+                time.sleep(2)  # Wait 2 seconds before retry
+                self._request_screenshot()
+                return
             else:
                 print(f"⚠️ Unknown message format: {message_type} with {len(parts)} parts")
+                return
+            
+            # Verify we have a screenshot path
+            if not screenshot_path:
+                print(f"❌ No screenshot path available")
                 return
             
             # Safely parse coordinates with improved validation
@@ -705,6 +803,9 @@ class AIGameService(threading.Thread):
             
             # Get the previous screenshot (most recent in map) BEFORE registering the new one
             previous_path = None
+            print(f"🔍 Getting previous screenshot:")
+            print(f"   📊 Map size: {len(self.screenshot_map)}")
+            
             if len(self.screenshot_map) > 0:
                 # Get the most recent screenshot as "previous"
                 sorted_screenshots = sorted(
@@ -713,17 +814,31 @@ class AIGameService(threading.Thread):
                     reverse=True
                 )
                 previous_path = sorted_screenshots[0][0]
+                print(f"   📸 Most recent screenshot (will be 'previous'): {os.path.basename(previous_path)}")
+                print(f"   ⏰ Creation time: {sorted_screenshots[0][1]}")
+            else:
+                print(f"   📭 No previous screenshots available")
             
-            # Now register the new screenshot as "current"
-            self._register_new_screenshot(screenshot_path)
-            current_path = screenshot_path
+            # Now register the new screenshot as "current" and get normalized path
+            current_path = self._register_new_screenshot(screenshot_path) or screenshot_path
+            
+            # Debug logging for screenshot map state
+            print(f"🔍 Screenshot Map Debug:")
+            print(f"   📊 Total screenshots tracked: {len(self.screenshot_map)}")
+            for filename, creation_time in sorted(self.screenshot_map.items(), key=lambda x: x[1], reverse=True):
+                print(f"   📸 {os.path.basename(filename)} → {creation_time}")
+            print(f"   🎯 Previous: {os.path.basename(previous_path) if previous_path else 'None'}")
+            print(f"   🎯 Current: {os.path.basename(current_path) if current_path else 'None'}")
+            print(f"   ✅ Same file? {previous_path == current_path}")
             
             # Display screenshots being sent to AI
             if previous_path and current_path and previous_path != current_path:
                 # Subsequent cycle: Show both previous and current screenshots
+                print(f"📤 Sending screenshot comparison: {os.path.basename(previous_path)} vs {os.path.basename(current_path)}")
                 self._send_screenshot_comparison_message(previous_path, current_path, game_state)
             else:
                 # Initial cycle or only one screenshot: Show current screenshot only
+                print(f"📤 Sending single screenshot: {os.path.basename(current_path) if current_path else 'None'}")
                 self._send_single_screenshot_message(screenshot_path, game_state)
             
             # Load current configuration from database
@@ -947,18 +1062,25 @@ class AIGameService(threading.Thread):
             }
     
     def _request_screenshot(self):
-        """Request a screenshot from mGBA with retry logic"""
+        """Request a screenshot from mGBA with controlled filename"""
         if not self.mgba_connected or not self.client_socket:
             print("⚠️ Cannot request screenshot: mGBA not connected")
             return False
+        
+        # Generate controlled filename
+        self.screenshot_counter += 1
+        filename = f"screenshot_ai_{self.screenshot_counter:06d}.png"
+        self.next_screenshot_path = str(self.screenshot_dir / filename)
         
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 self.client_socket.settimeout(5.0)  # 5 second timeout
-                self.client_socket.send("request_screenshot\n".encode('utf-8'))
+                # Send filename instruction to mGBA
+                message = f"request_screenshot_to||{filename}\n"
+                self.client_socket.send(message.encode('utf-8'))
                 self.client_socket.settimeout(0.1)  # Reset timeout
-                print("📸 Requested screenshot from mGBA")
+                print(f"📸 Requested screenshot from mGBA: {filename}")
                 return True
             except socket.timeout:
                 print(f"⚠️ Screenshot request timeout (attempt {attempt + 1}/{max_retries})")

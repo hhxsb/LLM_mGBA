@@ -137,6 +137,7 @@ function waitForGameConfig()
     -- Configuration will be received via socket when Python service detects the game
 end
 
+
 -- Dynamic memory address discovery for GBA games
 function discoverMemoryAddresses()
     debugBuffer:print("Attempting to discover memory addresses...\n")
@@ -490,6 +491,77 @@ function stopVideoRecording()
     end
 end
 
+-- New controlled screenshot function
+function captureAndSendControlledScreenshot(filename)
+    -- Create directory if it doesn't exist
+    os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
+    
+    -- Use the AI service's controlled filename
+    local controlledPath = projectRoot .. "/data/screenshots/" .. filename
+    
+    -- Take the screenshot with the controlled filename
+    emu:screenshot(controlledPath)
+    
+    -- Wait for screenshot file to be written to disk (up to 3 seconds)
+    local maxWaitTime = 3  -- seconds
+    local waitInterval = 0.1  -- seconds
+    local totalWaited = 0
+    local fileExists = false
+    
+    while totalWaited < maxWaitTime do
+        -- Check if file exists and has reasonable size
+        local file = io.open(controlledPath, "r")
+        if file then
+            file:close()
+            -- Additional check: ensure file has some content (not 0 bytes)
+            local fileSize = 0
+            file = io.open(controlledPath, "rb")
+            if file then
+                file:seek("end")
+                fileSize = file:seek()
+                file:close()
+            end
+            if fileSize > 1000 then  -- Reasonable minimum size for a screenshot
+                fileExists = true
+                break
+            end
+        end
+        
+        -- Wait a bit before checking again
+        os.execute("sleep " .. waitInterval)
+        totalWaited = totalWaited + waitInterval
+    end
+    
+    if not fileExists then
+        debugBuffer:print("⚠️ Screenshot file not ready after " .. maxWaitTime .. " seconds: " .. filename .. "\n")
+        -- Still send response but with error indication
+        sendMessage("screenshot_error", "File not created: " .. filename)
+        return
+    end
+    
+    debugBuffer:print("✅ Screenshot file confirmed: " .. filename .. "\n")
+    
+    -- Read the game memory data
+    local memoryData = readGameMemory()
+    
+    -- Send response using new format (no path since it's controlled)
+    -- Format: direction||x||y||mapId (path is omitted since AI service controls it)
+    local dataString = memoryData.direction.text .. 
+                      "||" .. memoryData.position.x .. 
+                      "||" .. memoryData.position.y .. 
+                      "||" .. memoryData.mapId
+    
+    -- Send controlled screenshot data to Python controller
+    sendMessage("screenshot_with_state", dataString)
+    
+    debugBuffer:print("Controlled screenshot captured:\n")
+    debugBuffer:print("Filename: " .. filename .. "\n")
+    debugBuffer:print("Path: " .. controlledPath .. "\n")
+    debugBuffer:print("Direction: " .. memoryData.direction.text .. "\n")
+    debugBuffer:print("Position: X=" .. memoryData.position.x .. ", Y=" .. memoryData.position.y .. "\n")
+    debugBuffer:print("Map ID: " .. memoryData.mapId .. "\n")
+end
+
 -- Legacy screenshot function (keeping for backward compatibility)
 function captureAndSendScreenshot()
     -- Create directory if it doesn't exist
@@ -692,6 +764,26 @@ function socketReceived()
                 captureAndSendScreenshot()
             else
                 debugBuffer:print("Cannot take screenshot: Game not configured yet\n")
+            end
+        elseif string.find(data, "request_screenshot_to||") then
+            -- New controlled screenshot naming protocol
+            local parts = {}
+            for part in string.gmatch(data, "([^|]+)") do
+                table.insert(parts, part)
+            end
+            
+            if #parts >= 2 then
+                local command = parts[1]
+                local filename = parts[2]
+                debugBuffer:print("Controlled screenshot requested: " .. filename .. "\n")
+                
+                if gameConfigReceived then
+                    captureAndSendControlledScreenshot(filename)
+                else
+                    debugBuffer:print("Cannot take screenshot: Game not configured yet\n")
+                end
+            else
+                debugBuffer:print("Invalid controlled screenshot command format\n")
             end
         elseif data == "request_after_screenshot" then
             debugBuffer:print("After screenshot requested by controller\n")

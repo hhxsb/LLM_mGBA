@@ -145,6 +145,46 @@ class LLMClient:
             print(f"❌ Error loading prompt template: {e}")
             self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
     
+    def _wait_for_screenshot(self, screenshot_path: str, max_wait_seconds: int = 5, check_interval: float = 0.2) -> bool:
+        """
+        Wait for a screenshot file to be available and have reasonable size.
+        
+        Args:
+            screenshot_path: Path to the screenshot file
+            max_wait_seconds: Maximum time to wait in seconds
+            check_interval: How often to check in seconds
+            
+        Returns:
+            True if file is available with reasonable size, False if timeout
+        """
+        import time
+        
+        total_waited = 0.0
+        min_file_size = 1000  # Minimum reasonable size for a screenshot
+        
+        print(f"📸 Waiting for screenshot: {os.path.basename(screenshot_path)}")
+        
+        while total_waited < max_wait_seconds:
+            if os.path.exists(screenshot_path):
+                try:
+                    file_size = os.path.getsize(screenshot_path)
+                    if file_size >= min_file_size:
+                        print(f"✅ Screenshot ready: {os.path.basename(screenshot_path)} ({file_size} bytes)")
+                        return True
+                    else:
+                        print(f"⏳ Screenshot file too small ({file_size} bytes), waiting...")
+                except OSError:
+                    # File might be in the process of being written
+                    print(f"⏳ Screenshot file being written, waiting...")
+            else:
+                print(f"⏳ Screenshot file doesn't exist yet, waiting...")
+            
+            time.sleep(check_interval)
+            total_waited += check_interval
+        
+        print(f"⚠️ Screenshot not ready after {max_wait_seconds}s: {os.path.basename(screenshot_path)}")
+        return False
+    
     def analyze_game_state(self, screenshot_path: str, game_state: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> Dict[str, Any]:
         """
         Analyze game state and return AI decision with enhanced processing
@@ -158,14 +198,14 @@ class LLMClient:
             }
         """
         try:
-            # Load and enhance screenshot
-            if not os.path.exists(screenshot_path):
+            # Wait for screenshot to be available with retry logic
+            if not self._wait_for_screenshot(screenshot_path, max_wait_seconds=5):
                 return {
-                    "text": "⚠️ An error occurred: Screenshot not found",
+                    "text": "⚠️ An error occurred: Screenshot not available after waiting",
                     "actions": [],  # No actions on error
                     "success": False,
-                    "error": f"Screenshot file not found: {screenshot_path}",
-                    "error_details": f"Screenshot file not found: {screenshot_path}"
+                    "error": f"Screenshot file not available after waiting: {screenshot_path}",
+                    "error_details": f"Screenshot file not available after 5 seconds: {screenshot_path}"
                 }
             
             # Create enhanced game context with recent actions and before/after analysis
@@ -204,18 +244,20 @@ class LLMClient:
             }
         """
         try:
-            # Load and enhance both screenshots
-            if not os.path.exists(current_screenshot):
+            # Wait for current screenshot to be available with retry logic
+            if not self._wait_for_screenshot(current_screenshot, max_wait_seconds=5):
                 return {
-                    "text": "⚠️ An error occurred: Current screenshot not found", 
+                    "text": "⚠️ An error occurred: Current screenshot not available after waiting", 
                     "actions": [],  # No actions on error
                     "success": False,
-                    "error": f"Current screenshot not found: {current_screenshot}",
-                    "error_details": f"Current screenshot not found: {current_screenshot}"
+                    "error": f"Current screenshot not available after waiting: {current_screenshot}",
+                    "error_details": f"Current screenshot not available after 5 seconds: {current_screenshot}"
                 }
             
+            # Check if previous screenshot exists (no wait needed for previous screenshot)
             if not os.path.exists(previous_screenshot):
                 # Fallback to single screenshot analysis
+                print(f"📸 Previous screenshot not found, falling back to single screenshot analysis")
                 return self.analyze_game_state(current_screenshot, game_state, recent_actions_text)
             
             # Create enhanced game context for comparison
@@ -262,9 +304,9 @@ Map ID: {map_id}
 - Lower Y values = UP, Higher Y values = DOWN
 - **CRITICAL MOVEMENT MECHANICS**: 
   * **Turning**: 2 frames changes facing direction (no coordinate movement)
-  * **Moving**: 30 frames moves 1 coordinate unit (only if already facing that direction)
-  * **Total movement**: Turn (2 frames) + Move (30×units frames) if changing direction
-  * **Same direction**: Just 30×units frames if already facing the right way"""
+  * **Moving**: 20 frames moves 1 coordinate unit (only if already facing that direction)
+  * **Total movement**: Turn (2 frames) + Move (20×units frames) if changing direction
+  * **Same direction**: Just 20×units frames if already facing the right way"""
         
         # Enhanced direction guidance based on position and movement patterns
         direction_guidance = self._get_direction_guidance_text(direction, x, y, map_id)
