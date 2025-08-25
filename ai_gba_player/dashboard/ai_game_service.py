@@ -107,6 +107,17 @@ class AIGameService(threading.Thread):
         self.last_valid_data_time = None
         self.recalibration_needed = False
         
+        # Error state tracking and retry logic
+        self.last_ai_request_success = True
+        self.current_retry_count = 0
+        self.max_retry_attempts = 3
+        self.last_error_info = None
+        self.last_successful_screenshots = None  # Store (previous_path, current_path) for retry
+        self.last_successful_game_state = None
+        self.retry_backoff_delay = 2.0  # seconds between retries
+        self.consecutive_errors = 0
+        self.success_rate_tracking = {'successes': 0, 'failures': 0}
+        
         # Initialize notepad
         self._initialize_notepad()
         
@@ -442,6 +453,77 @@ class AIGameService(threading.Thread):
         
         print(f"⏱️ Calculated screenshot delay: {final_delay:.2f}s for {len(actions)} actions")
         return final_delay
+    
+    def _classify_error_type(self, error: Exception) -> str:
+        """Classify errors as retryable, non-retryable, or connection-related"""
+        error_msg = str(error).lower()
+        
+        # Connection-related errors (usually retryable with connection reset)
+        if any(keyword in error_msg for keyword in ['connection', 'socket', 'timeout', 'mgba']):
+            return "connection"
+        
+        # API-related retryable errors
+        if any(keyword in error_msg for keyword in ['timeout', 'rate limit', 'server error', '5', 'temporary']):
+            return "retryable_api"
+        
+        # Parsing or response format errors (retryable)
+        if any(keyword in error_msg for keyword in ['parse', 'json', 'format', 'invalid response']):
+            return "retryable_parse"
+        
+        # Non-retryable errors (authentication, permissions, etc.)
+        if any(keyword in error_msg for keyword in ['auth', 'permission', 'forbidden', 'unauthorized', 'api key']):
+            return "non_retryable"
+        
+        # Default to retryable for unknown errors
+        return "retryable_unknown"
+    
+    def _should_retry_error(self, error: Exception) -> bool:
+        """Determine if an error should be retried"""
+        if self.current_retry_count >= self.max_retry_attempts:
+            return False
+        
+        error_type = self._classify_error_type(error)
+        return error_type != "non_retryable"
+    
+    def _calculate_retry_delay(self) -> float:
+        """Calculate backoff delay for retries"""
+        # Exponential backoff with jitter
+        base_delay = self.retry_backoff_delay
+        backoff_multiplier = 1.5 ** self.current_retry_count
+        return min(base_delay * backoff_multiplier, 10.0)  # Cap at 10 seconds
+    
+    def _record_ai_success(self, screenshot_paths: tuple, game_state: Dict[str, Any]):
+        """Record successful AI request/response cycle"""
+        self.last_ai_request_success = True
+        self.current_retry_count = 0
+        self.last_error_info = None
+        self.last_successful_screenshots = screenshot_paths
+        self.last_successful_game_state = game_state.copy()
+        self.consecutive_errors = 0
+        self.success_rate_tracking['successes'] += 1
+        
+        if self.success_rate_tracking['successes'] % 10 == 0:
+            total = self.success_rate_tracking['successes'] + self.success_rate_tracking['failures']
+            success_rate = (self.success_rate_tracking['successes'] / total) * 100
+            print(f"📊 AI Success Rate: {success_rate:.1f}% ({total} total requests)")
+    
+    def _record_ai_failure(self, error: Exception, screenshot_path: str, game_state: Dict[str, Any]):
+        """Record failed AI request/response cycle"""
+        self.last_ai_request_success = False
+        self.current_retry_count += 1
+        self.consecutive_errors += 1
+        self.success_rate_tracking['failures'] += 1
+        
+        self.last_error_info = {
+            'error': error,
+            'screenshot_path': screenshot_path,
+            'game_state': game_state.copy(),
+            'error_type': self._classify_error_type(error),
+            'timestamp': time.time()
+        }
+        
+        print(f"📉 AI Failure #{self.consecutive_errors} (Retry {self.current_retry_count}/{self.max_retry_attempts})")
+        print(f"🔍 Error Type: {self.last_error_info['error_type']}")
     
     def _setup_socket_server(self):
         """Set up the socket server for mGBA communication"""
@@ -892,8 +974,8 @@ class AIGameService(threading.Thread):
             # Add movement analysis to context
             movement_analysis = self._get_movement_analysis_text()
             
-            # Call AI with latest screenshots for LLM-based analysis
-            ai_response = self._call_ai_api_with_comparison(
+            # Call AI with retry logic for better error handling
+            ai_response = self._call_ai_with_retry(
                 current_screenshot=current_path,
                 previous_screenshot=previous_path if previous_path != current_path else None,
                 game_state=game_state,
@@ -904,13 +986,14 @@ class AIGameService(threading.Thread):
             # Show AI response in chat (includes both decision and analysis)
             self._send_ai_response_message(ai_response)
             
-            # Check if this is an error response first
-            is_error_response = not ai_response.get("success", True)
+            # Extract actions from response
             actions_to_send = ai_response.get("actions", [])
             durations_to_send = ai_response.get("durations", [])
             
+            # Check if this is an error response
+            is_error_response = not ai_response.get("success", True)
+            
             if is_error_response:
-                # Error occurred - don't send any actions
                 print("🚫 Error response detected - not sending any button actions")
                 actions_to_send = []
             else:
@@ -936,6 +1019,9 @@ class AIGameService(threading.Thread):
             
             # Only send button sequences and calculate delays if we have actions
             if actions_to_send:
+                # Record successful AI decision BEFORE sending actions
+                self._record_ai_success((previous_path, current_path), game_state)
+                
                 # Send button sequence to mGBA  
                 self._send_button_sequence(actions_to_send, durations_to_send)
                 
@@ -1490,7 +1576,7 @@ class AIGameService(threading.Thread):
                 return "A"  # Try to interact
     
     def _handle_ai_processing_error(self, error: Exception, screenshot_path: str, game_state: Dict[str, Any]):
-        """Handle AI processing errors with graceful recovery"""
+        """Handle AI processing errors with fallback actions - retries are now handled in _call_ai_with_retry"""
         error_msg = str(error)
         
         # Log the error with context
@@ -1500,13 +1586,95 @@ class AIGameService(threading.Thread):
         # Send error message to chat
         self._send_chat_message("system", f"⚠️ AI processing error: {error_msg}")
         
-        # Try to recover by using fallback
+        # Use fallback action - retries are handled upstream now
         fallback_action = self._get_intelligent_fallback_action(game_state)
         self._send_button_commands([fallback_action])
         
-        # Request next screenshot after a delay
+        # Request new screenshot after fallback action
         time.sleep(2)
         self._request_screenshot()
+    
+    def _call_ai_with_retry(self, current_screenshot: str, previous_screenshot: Optional[str], game_state: Dict[str, Any], config: Dict[str, Any], enhanced_context: str) -> Dict[str, Any]:
+        """Call AI API with intelligent retry logic for error handling"""
+        
+        # Store screenshots for potential retry
+        screenshot_pair = (previous_screenshot, current_screenshot)
+        
+        for attempt in range(self.max_retry_attempts + 1):  # +1 for initial attempt
+            try:
+                print(f"🤖 AI API Call (attempt {attempt + 1}/{self.max_retry_attempts + 1})")
+                
+                # Make the actual AI API call
+                ai_response = self._call_ai_api_with_comparison(
+                    current_screenshot=current_screenshot,
+                    previous_screenshot=previous_screenshot,
+                    game_state=game_state,
+                    config=config,
+                    enhanced_context=enhanced_context
+                )
+                
+                # Check if response is successful
+                if ai_response and ai_response.get("success", True):
+                    # Success! Record it and return
+                    if attempt == 0:
+                        # This was the first attempt - record as normal success
+                        self._record_ai_success(screenshot_pair, game_state)
+                    else:
+                        # This was a retry that succeeded
+                        print(f"✅ Retry succeeded on attempt {attempt + 1}")
+                        self._record_ai_success(screenshot_pair, game_state)
+                        self._send_chat_message("system", f"✅ AI recovered after {attempt} retries")
+                    
+                    return ai_response
+                
+                # Response indicates failure - check if retryable
+                error_text = ai_response.get("text", "") if ai_response else ""
+                error_info = ai_response.get("error", "") if ai_response else ""
+                
+                # Create exception from error response for retry logic
+                if "LLM provided no reasoning text" in error_text or "LLM provided empty response" in error_text:
+                    error = Exception(f"Empty LLM response: {error_text}")
+                elif "Google API" in error_info and "500" in error_info:
+                    error = Exception(f"Google API error: {error_info}")
+                elif "timeout" in error_info.lower() or "rate limit" in error_info.lower():
+                    error = Exception(f"API issue: {error_info}")
+                else:
+                    error = Exception(f"LLM error response: {error_text}")
+                
+                # Check if we should retry this error
+                if attempt < self.max_retry_attempts and self._should_retry_error(error):
+                    self._record_ai_failure(error, current_screenshot, game_state)
+                    retry_delay = self._calculate_retry_delay()
+                    print(f"🔄 AI error on attempt {attempt + 1} - retrying with same screenshots after {retry_delay:.1f}s")
+                    print(f"📸 Reusing: {os.path.basename(previous_screenshot or 'None')} vs {os.path.basename(current_screenshot)}")
+                    self._send_chat_message("system", f"🔄 AI retry {attempt + 1} after error: {str(error)[:100]}")
+                    
+                    time.sleep(retry_delay)
+                    continue  # Retry with same screenshots
+                else:
+                    # Max retries reached or non-retryable error
+                    print(f"🚫 AI failed after {attempt + 1} attempts - using fallback")
+                    self._record_ai_failure(error, current_screenshot, game_state)
+                    return ai_response or {"text": "Max retries exceeded", "actions": [], "success": False}
+            
+            except Exception as e:
+                # Actual exception during API call
+                if attempt < self.max_retry_attempts and self._should_retry_error(e):
+                    self._record_ai_failure(e, current_screenshot, game_state)
+                    retry_delay = self._calculate_retry_delay()
+                    print(f"🔄 AI exception on attempt {attempt + 1} - retrying after {retry_delay:.1f}s: {e}")
+                    self._send_chat_message("system", f"🔄 API retry {attempt + 1} after exception: {str(e)[:100]}")
+                    
+                    time.sleep(retry_delay)
+                    continue  # Retry with same screenshots
+                else:
+                    # Max retries reached or non-retryable error
+                    print(f"❌ AI exception after {attempt + 1} attempts: {e}")
+                    self._record_ai_failure(e, current_screenshot, game_state)
+                    return {"text": f"API error: {str(e)}", "actions": [], "success": False, "error": str(e)}
+        
+        # This should never be reached, but just in case
+        return {"text": "Unexpected error in retry logic", "actions": [], "success": False}
     
     def _process_memory_updates(self, ai_response: Dict[str, Any], game_state: Dict[str, Any], actions_taken: list):
         """Process AI response for autonomous objective discovery and strategy learning"""
