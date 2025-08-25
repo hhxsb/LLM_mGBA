@@ -24,12 +24,10 @@ local postSequenceWaitFrames = 60  -- 1 second wait after last button
 -- Path settings (relative to project root)
 -- Note: Update these paths to match your project location
 local projectRoot = "/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red"  -- Change this to your project path
-local screenshotPath = projectRoot .. "/data/screenshots/screenshot.png"
-local previousScreenshotPath = projectRoot .. "/data/screenshots/previous_screenshot.png"
+-- Legacy hardcoded paths removed - AI service now controls all screenshot naming
 local videoPath = projectRoot .. "/data/videos/video_sequence.mp4"
 
--- Screenshot session tracking for before/after pairs
-local currentSessionTimestamp = nil
+-- Screenshot session tracking removed - AI service now handles all screenshot timing
 
 -- Game configuration system (received from Python service)
 local currentGame = nil
@@ -447,47 +445,19 @@ end
 
 function stopVideoRecording()
     if isRecording then
-        -- Instead of video recording, take an enhanced screenshot after the button sequence
-        -- Create directory if it doesn't exist
-        os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
-        
-        -- Take the screenshot
-        emu:screenshot(screenshotPath)
+        -- Stop video recording and let AI service handle screenshot capture
         isRecording = false
         
         -- Read the game memory data
         local memoryData = readGameMemory()
         
-        -- Create a data package to send with enhanced screenshot info
-        local dataPackage = {
-            path = screenshotPath,
-            previousPath = previousScreenshotPath,
-            direction = memoryData.direction.text,
-            x = memoryData.position.x,
-            y = memoryData.position.y,
-            mapId = memoryData.mapId,
-            buttonCount = totalButtonCount
-        }
+        debugBuffer:print("Video recording stopped after button sequence\n")
+        debugBuffer:print("Current position: X=" .. memoryData.position.x .. ", Y=" .. memoryData.position.y .. "\n")
+        debugBuffer:print("Map ID: " .. memoryData.mapId .. "\n")
+        debugBuffer:print("Button count processed: " .. totalButtonCount .. "\n")
         
-        -- Convert to a string format for sending
-        local dataString = dataPackage.path .. 
-                          "||" .. dataPackage.previousPath .. 
-                          "||" .. dataPackage.direction .. 
-                          "||" .. dataPackage.x .. 
-                          "||" .. dataPackage.y .. 
-                          "||" .. dataPackage.mapId .. 
-                          "||" .. dataPackage.buttonCount
-        
-        -- Send enhanced screenshot data to Python controller
-        sendMessage("enhanced_screenshot_with_state", dataString)
-        
-        debugBuffer:print("Enhanced screenshot captured and sent to controller\n")
-        debugBuffer:print("Direction: " .. dataPackage.direction .. "\n")
-        debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
-        debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
-        debugBuffer:print("Button count: " .. dataPackage.buttonCount .. "\n")
-        
-        -- AI service controls timing, no need to set waiting flag
+        -- Let AI service request screenshot when ready - no automatic screenshot here
+        -- This eliminates the problematic enhanced_screenshot_with_state message
     end
 end
 
@@ -562,90 +532,11 @@ function captureAndSendControlledScreenshot(filename)
     debugBuffer:print("Map ID: " .. memoryData.mapId .. "\n")
 end
 
--- Legacy screenshot function (keeping for backward compatibility)
-function captureAndSendScreenshot()
-    -- Create directory if it doesn't exist
-    os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
-    
-    -- Create new session timestamp for this before/after pair
-    currentSessionTimestamp = os.time()
-    local timestampedPath = string.gsub(screenshotPath, "%.png", "_before_" .. currentSessionTimestamp .. ".png")
-    
-    -- Take the screenshot
-    emu:screenshot(timestampedPath)
-    
-    -- Read the game memory data
-    local memoryData = readGameMemory()
-    
-    -- Create a data package to send with the screenshot
-    local dataPackage = {
-        path = timestampedPath,
-        direction = memoryData.direction.text,
-        x = memoryData.position.x,
-        y = memoryData.position.y,
-        mapId = memoryData.mapId
-    }
-    
-    -- Convert to a string format for sending
-    local dataString = dataPackage.path .. 
-                      "||" .. dataPackage.direction .. 
-                      "||" .. dataPackage.x .. 
-                      "||" .. dataPackage.y .. 
-                      "||" .. dataPackage.mapId
-    
-    -- Send combined data to Python controller
-    sendMessage("screenshot_with_state", dataString)
-    
-    debugBuffer:print("BEFORE screenshot captured with game state:\n")
-    debugBuffer:print("Path: " .. timestampedPath .. "\n")
-    debugBuffer:print("Session timestamp: " .. currentSessionTimestamp .. "\n")
-    debugBuffer:print("Direction: " .. dataPackage.direction .. "\n")
-    debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
-    debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
-    
-    -- AI service controls timing, no need to set waiting flag
-end
+-- Legacy screenshot function removed - all screenshots now use controlled naming
+-- This eliminates the confusion between timestamped and controlled filenames
 
-function captureAndSendAfterScreenshot()
-    -- Create directory if it doesn't exist
-    os.execute("mkdir -p \"" .. projectRoot .. "/data/screenshots\"")
-    
-    -- Take the after screenshot using the same session timestamp
-    if not currentSessionTimestamp then
-        currentSessionTimestamp = os.time()  -- Fallback if no session timestamp
-    end
-    local afterScreenshotPath = string.gsub(screenshotPath, "%.png", "_after_" .. currentSessionTimestamp .. ".png")
-    emu:screenshot(afterScreenshotPath)
-    
-    -- Read the game memory data
-    local memoryData = readGameMemory()
-    
-    -- Create a data package to send with the after screenshot
-    local dataPackage = {
-        path = afterScreenshotPath,
-        direction = memoryData.direction.text,
-        x = memoryData.position.x,
-        y = memoryData.position.y,
-        mapId = memoryData.mapId
-    }
-    
-    -- Convert to a string format for sending
-    local dataString = dataPackage.path .. 
-                      "||" .. dataPackage.direction .. 
-                      "||" .. dataPackage.x .. 
-                      "||" .. dataPackage.y .. 
-                      "||" .. dataPackage.mapId
-    
-    -- Send combined data to Python controller with special prefix
-    sendMessage("after_screenshot_data", dataString)
-    
-    debugBuffer:print("AFTER screenshot captured with game state:\n")
-    debugBuffer:print("Path: " .. afterScreenshotPath .. "\n")
-    debugBuffer:print("Session timestamp: " .. currentSessionTimestamp .. "\n")
-    debugBuffer:print("Direction: " .. dataPackage.direction .. "\n")
-    debugBuffer:print("Position: X=" .. dataPackage.x .. ", Y=" .. dataPackage.y .. "\n")
-    debugBuffer:print("Map ID: " .. dataPackage.mapId .. "\n")
-end
+-- Legacy after screenshot function removed - replaced with controlled naming
+-- AI service now manages all screenshot timing and naming
 
 function sendGameState()
     -- Read the game memory data (no screenshot needed for screen capture mode)
@@ -759,9 +650,11 @@ function socketReceived()
         -- Process different command types
         if data == "request_screenshot" then
             debugBuffer:print("Screenshot requested by controller\n")
-            -- Always respond to screenshot requests if game is configured (AI service controls timing)
+            -- Legacy request - redirect to controlled screenshot with default name
             if gameConfigReceived then
-                captureAndSendScreenshot()
+                -- Generate a temporary filename for legacy requests
+                local legacyFilename = "screenshot_legacy_" .. os.time() .. ".png"
+                captureAndSendControlledScreenshot(legacyFilename)
             else
                 debugBuffer:print("Cannot take screenshot: Game not configured yet\n")
             end
@@ -786,10 +679,11 @@ function socketReceived()
                 debugBuffer:print("Invalid controlled screenshot command format\n")
             end
         elseif data == "request_after_screenshot" then
-            debugBuffer:print("After screenshot requested by controller\n")
-            -- Capture after screenshot if game is configured
+            debugBuffer:print("After screenshot requested by controller (legacy)\n")
+            -- Legacy request - redirect to controlled screenshot
             if gameConfigReceived then
-                captureAndSendAfterScreenshot()
+                local afterFilename = "screenshot_after_" .. os.time() .. ".png"
+                captureAndSendControlledScreenshot(afterFilename)
             else
                 debugBuffer:print("Cannot take after screenshot: Game not configured yet\n")
             end
@@ -885,11 +779,8 @@ function socketReceived()
             if #buttonCodes > 0 then
                 local keyNames = { "A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L" }
                 
-                -- Save current screenshot as previous before processing buttons
-                if waitingForRequest then
-                    emu:screenshot(previousScreenshotPath)
-                    debugBuffer:print("Saved previous screenshot\n")
-                end
+                -- Previous screenshots are now managed by AI service, not mGBA
+                -- This eliminates hardcoded screenshot paths and naming conflicts
                 
                 -- Clear existing key presses and button queue
                 emu:clearKeys(0x3FF)

@@ -57,6 +57,10 @@ class AIGameService(threading.Thread):
         self.screenshot_counter = 0  # Sequential counter for registration order
         self.screenshot_dir = Path("/Users/chengwan/Projects/pokemonAI/LLM-Pokemon-Red/data/screenshots")
         self.current_screenshot_path = None
+        
+        # Protocol consistency tracking
+        self.protocol_violations = []  # Track any protocol inconsistencies
+        self.legacy_message_count = 0  # Count deprecated message types
         self.next_screenshot_path = None  # Path where next screenshot will be saved
         self._initialize_screenshot_tracking()
         
@@ -706,22 +710,57 @@ class AIGameService(threading.Thread):
                     direction = parts[2]
                     x_str, y_str, map_id_str = parts[3], parts[4], parts[5]
                     print("📷 Using legacy screenshot format (path provided by mGBA)")
-                elif len(parts) >= 5 and self.next_screenshot_path:
+                elif len(parts) >= 5:
                     # New format: "screenshot_with_state||direction||x||y||mapId" (controlled path)
                     direction = parts[1]
                     x_str, y_str, map_id_str = parts[2], parts[3], parts[4]
-                    screenshot_path = self.next_screenshot_path
-                    print("📷 Using controlled screenshot format (path managed by AI service)")
+                    
+                    if self.next_screenshot_path:
+                        screenshot_path = self.next_screenshot_path
+                        print("📷 Using controlled screenshot format (path managed by AI service)")
+                    else:
+                        # For testing or when next_screenshot_path not set, generate a default
+                        screenshot_path = f"/tmp/test_screenshot_{int(time.time())}.png"
+                        print("📷 Using controlled screenshot format (test/fallback path)")
                 else:
-                    print(f"⚠️ Invalid screenshot_with_state format: {len(parts)} parts, expected 5+ with controlled naming or 6+ with legacy naming")
+                    print(f"⚠️ Invalid screenshot_with_state format: {len(parts)} parts, expected 5+")
                     return
             elif message_type == "enhanced_screenshot_with_state":
+                # DEPRECATED: This message type should no longer be used
+                self.legacy_message_count += 1
+                violation = {
+                    'type': 'deprecated_message',
+                    'message_type': message_type,
+                    'timestamp': time.time(),
+                    'details': 'enhanced_screenshot_with_state should not be used'
+                }
+                self.protocol_violations.append(violation)
+                
+                print("⚠️ WARNING: Received deprecated 'enhanced_screenshot_with_state' message")
+                print("🔧 mGBA Lua script should be updated to use only 'screenshot_with_state' format")
+                print("📋 This legacy format causes screenshot naming conflicts")
+                print(f"📊 Legacy messages received so far: {self.legacy_message_count}")
+                
                 if len(parts) >= 8:
                     # Old format: "enhanced_screenshot_with_state||path||previousPath||direction||x||y||mapId||buttonCount"
                     screenshot_path = parts[1]
                     direction = parts[3]
                     x_str, y_str, map_id_str = parts[4], parts[5], parts[6]
-                    print("📷 Using legacy enhanced screenshot format (path provided by mGBA)")
+                    print("📷 Processing legacy enhanced screenshot format (DEPRECATED)")
+                    
+                    # Log the problematic hardcoded paths
+                    print(f"🚨 Hardcoded paths detected: {parts[1]} | {parts[2]}")
+                    print("🔧 Update mGBA script to eliminate hardcoded screenshot paths")
+                    
+                    # Track hardcoded path violation
+                    if 'screenshot.png' in parts[1] or 'previous_screenshot.png' in parts[2]:
+                        violation = {
+                            'type': 'hardcoded_paths',
+                            'paths': [parts[1], parts[2]],
+                            'timestamp': time.time(),
+                            'details': 'Hardcoded screenshot paths detected'
+                        }
+                        self.protocol_violations.append(violation)
                 elif len(parts) >= 6 and self.next_screenshot_path:
                     # New format: "enhanced_screenshot_with_state||direction||x||y||mapId||buttonCount"
                     direction = parts[1]
