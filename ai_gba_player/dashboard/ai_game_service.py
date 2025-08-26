@@ -23,6 +23,7 @@ from .game_detector import get_game_detector
 from .player_agent import PlayerAgent
 from .narration_agent import NarrationAgent
 from .tts_service import TTSService
+from .agent_coordinator import AgentCoordinator
 
 # Memory service will be imported when Django is ready
 MEMORY_SERVICE_AVAILABLE = False
@@ -77,11 +78,8 @@ class AIGameService(threading.Thread):
         # LLM client
         self.llm_client = None
         
-        # PlayerAgent for game decision making
-        self.player_agent = PlayerAgent()
-        
-        # NarrationAgent for entertainment commentary
-        self.narration_agent = NarrationAgent()
+        # AgentCoordinator for threaded PlayerAgent and NarrationAgent
+        self.agent_coordinator = AgentCoordinator()
         
         # TTSService for narration audio playback
         self.tts_service = TTSService()
@@ -363,6 +361,9 @@ class AIGameService(threading.Thread):
             except:
                 pass
         
+        # Shutdown AgentCoordinator and its threads
+        self.agent_coordinator.shutdown()
+        
         self._send_chat_message("system", "⏸️ AI Service stopped")
     
     def reset_llm_session(self):
@@ -376,11 +377,8 @@ class AIGameService(threading.Thread):
             print("⚠️ No LLM client to reset")
             self._send_chat_message("system", "⚠️ No LLM client active to reset")
         
-        # Reset PlayerAgent session
-        self.player_agent.reset_session()
-        
-        # Reset NarrationAgent session  
-        self.narration_agent.reset_session()
+        # Reset AgentCoordinator sessions
+        self.agent_coordinator.reset_sessions()
         
         # Also clear recent actions to start fresh
         self.recent_actions = []
@@ -991,26 +989,31 @@ class AIGameService(threading.Thread):
             # Add movement analysis to context
             movement_analysis = self._get_movement_analysis_text()
             
-            # Initialize PlayerAgent LLM if needed
-            if not self.player_agent.llm_client:
-                self.player_agent.initialize_llm(config)
+            # Initialize AgentCoordinator if needed
+            self.agent_coordinator.initialize_agents(config)
             
             # Set memory system integration
-            if self.memory_system and not self.player_agent.memory_system:
-                self.player_agent.set_memory_system(self.memory_system)
+            if self.memory_system:
+                self.agent_coordinator.set_memory_system(self.memory_system)
             
-            # Call PlayerAgent for decision making
-            player_response = self.player_agent.analyze_and_decide(
+            # Process game cycle with parallel agents (main optimization!)
+            player_response, initial_narration_response = self.agent_coordinator.process_game_cycle(
                 screenshot_path=current_path,
                 game_state=game_state,
                 previous_screenshot=previous_path if previous_path != current_path else None,
                 enhanced_context=recent_actions_text + "\n" + movement_analysis
             )
             
-            # Generate entertaining narration for streaming
-            narration_response = self.narration_agent.generate_narration(
-                player_response.to_dict(), game_state
-            )
+            # Try to get narration response immediately (non-blocking)
+            narration_response = self.agent_coordinator.get_pending_narration()
+            if not narration_response:
+                # If no narration ready yet, create a placeholder
+                from .narration_agent import NarrationResponse
+                narration_response = NarrationResponse(
+                    success=False,
+                    narration="Processing narration in background...",
+                    error="Still processing"
+                )
             
             # Convert narration to speech (non-blocking background playback)
             tts_status = "Silent"
@@ -1070,12 +1073,16 @@ class AIGameService(threading.Thread):
                 total_delay = action_delay + cooldown
                 
                 print(f"⏳ Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
-                time.sleep(total_delay)
+                
+                # Use waiting time to collect background narration (optimization!)
+                self._wait_and_collect_narration(total_delay)
             else:
                 # Error case - just wait minimal cooldown and continue
                 cooldown = config.get('decision_cooldown', 3)
                 print(f"⏳ Error occurred - waiting minimal {cooldown}s cooldown before continuing")
-                time.sleep(cooldown)
+                
+                # Even in error case, try to collect narration during wait
+                self._wait_and_collect_narration(cooldown)
             
             # Request next screenshot to continue cycle
             if self.mgba_connected:
@@ -1663,6 +1670,35 @@ class AIGameService(threading.Thread):
         # Request new screenshot after fallback action
         time.sleep(2)
         self._request_screenshot()
+    
+    def _wait_and_collect_narration(self, wait_time: float):
+        """Wait for specified time while collecting background narration when available"""
+        start_time = time.time()
+        check_interval = 0.5  # Check for narration every 0.5 seconds
+        
+        while time.time() - start_time < wait_time:
+            # Check for available narration
+            narration_response = self.agent_coordinator.get_pending_narration()
+            if narration_response and narration_response.success:
+                print("🎤 Background narration ready!")
+                
+                # Convert narration to speech (non-blocking)
+                tts_status = "Silent"
+                if narration_response.narration:
+                    tts_result = self.tts_service.speak_narration(narration_response.to_dict(), blocking=False)
+                    tts_status = "Playing" if tts_result else "Failed"
+                
+                # Send narration message to chat
+                self._send_narration_message(narration_response.to_dict(), tts_status)
+                
+                # Once we get narration, we can continue with the remaining wait time
+                break
+            
+            # Sleep for check interval or remaining time (whichever is shorter)
+            remaining_time = wait_time - (time.time() - start_time)
+            sleep_time = min(check_interval, remaining_time)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
     
     
     def _process_memory_updates(self, ai_response: Dict[str, Any], game_state: Dict[str, Any], actions_taken: list):
