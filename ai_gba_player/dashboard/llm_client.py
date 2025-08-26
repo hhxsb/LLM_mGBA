@@ -403,6 +403,7 @@ CURRENT SCREENSHOT (after your last actions):
             actions = []  # Will remain empty if no text found
             durations = []
             notepad_update = None
+            structured_analysis = {}
             
             print(f"🔍 Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
             
@@ -517,6 +518,31 @@ CURRENT SCREENSHOT (after your last actions):
                                     notepad_update = args.fields['content'].string_value
                                 elif 'content' in args:
                                     notepad_update = args['content']
+                            
+                            elif part.function_call.name == "analyze_game_situation":
+                                # Handle structured analysis
+                                args = part.function_call.args
+                                print(f"📋 Structured analysis function call received")
+                                
+                                # Extract structured fields from Google's format
+                                if hasattr(args, 'fields'):
+                                    if 'game_analysis' in args.fields:
+                                        structured_analysis['game_analysis'] = args.fields['game_analysis'].string_value
+                                    if 'detected_dialogue' in args.fields:
+                                        structured_analysis['detected_dialogue'] = args.fields['detected_dialogue'].string_value
+                                    if 'action_reasoning' in args.fields:
+                                        structured_analysis['action_reasoning'] = args.fields['action_reasoning'].string_value
+                                    if 'current_situation' in args.fields:
+                                        structured_analysis['current_situation'] = args.fields['current_situation'].string_value
+                                    if 'emotional_context' in args.fields:
+                                        structured_analysis['emotional_context'] = args.fields['emotional_context'].string_value
+                                else:
+                                    # Fallback for direct access
+                                    for field in ['game_analysis', 'detected_dialogue', 'action_reasoning', 'current_situation', 'emotional_context']:
+                                        if field in args:
+                                            structured_analysis[field] = args[field]
+                                
+                                print(f"📊 Structured analysis extracted: {list(structured_analysis.keys())}")
             
             # Handle notepad updates if requested
             if notepad_update:
@@ -565,13 +591,21 @@ CURRENT SCREENSHOT (after your last actions):
                     "error_details": error_msg
                 }
             
-            return {
+            # Merge structured analysis into the response
+            response_dict = {
                 "text": response_text,
                 "actions": actions,
                 "durations": durations,
                 "success": True,
                 "error": None
             }
+            
+            # Add structured analysis fields if available
+            if structured_analysis:
+                response_dict.update(structured_analysis)
+                print(f"📊 Including structured analysis in response: {list(structured_analysis.keys())}")
+            
+            return response_dict
                 
         except Exception as e:
             print(f"❌ Google API comparison error: {e}")
@@ -620,6 +654,38 @@ CURRENT SCREENSHOT (after your last actions):
                                 )
                             },
                             required=["content"]
+                        )
+                    ),
+                    self.google_client.protos.FunctionDeclaration(
+                        name="analyze_game_situation",
+                        description="Provide structured analysis of the current game situation for narration and decision-making",
+                        parameters=self.google_client.protos.Schema(
+                            type=self.google_client.protos.Type.OBJECT,
+                            properties={
+                                "game_analysis": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    description="Overall analysis of what's happening in the game right now"
+                                ),
+                                "detected_dialogue": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    description="Any dialogue or text visible on screen (empty string if none)"
+                                ),
+                                "action_reasoning": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    description="Brief explanation of why you chose these specific actions"
+                                ),
+                                "current_situation": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    enum=["exploration", "battle", "dialogue", "menu_navigation", "stuck", "general_gameplay"],
+                                    description="Current type of gameplay situation"
+                                ),
+                                "emotional_context": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    enum=["excited", "tense", "curious", "neutral", "frustrated", "determined"],
+                                    description="Emotional tone appropriate for the current situation"
+                                )
+                            },
+                            required=["game_analysis", "action_reasoning", "current_situation", "emotional_context"]
                         )
                     )
                 ]
@@ -764,6 +830,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             actions = []  # Will remain empty if no text found
             durations = []
             notepad_update = None
+            structured_analysis = {}
             
             print(f"🔍 Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
             
@@ -941,18 +1008,51 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                                         notepad_update = content_field.value.string_value
                                     else:
                                         notepad_update = str(content_field)
+                            
+                            elif part.function_call.name == "analyze_game_situation":
+                                # Handle structured analysis in single screenshot method
+                                args = part.function_call.args
+                                print(f"📋 Structured analysis function call received (single)")
+                                
+                                # Extract structured fields from Google's format
+                                if hasattr(args, 'fields'):
+                                    if 'game_analysis' in args.fields:
+                                        structured_analysis['game_analysis'] = args.fields['game_analysis'].string_value
+                                    if 'detected_dialogue' in args.fields:
+                                        structured_analysis['detected_dialogue'] = args.fields['detected_dialogue'].string_value
+                                    if 'action_reasoning' in args.fields:
+                                        structured_analysis['action_reasoning'] = args.fields['action_reasoning'].string_value
+                                    if 'current_situation' in args.fields:
+                                        structured_analysis['current_situation'] = args.fields['current_situation'].string_value
+                                    if 'emotional_context' in args.fields:
+                                        structured_analysis['emotional_context'] = args.fields['emotional_context'].string_value
+                                else:
+                                    # Fallback for direct access
+                                    for field in ['game_analysis', 'detected_dialogue', 'action_reasoning', 'current_situation', 'emotional_context']:
+                                        if field in args:
+                                            structured_analysis[field] = args[field]
+                                
+                                print(f"📊 Structured analysis extracted (single): {list(structured_analysis.keys())}")
             
             # Handle notepad update
             if notepad_update:
                 self._update_notepad(notepad_update)
             
-            return {
+            # Merge structured analysis into the response
+            response_dict = {
                 "text": response_text,
                 "actions": actions,
                 "durations": durations,
                 "success": True,
                 "error": None
             }
+            
+            # Add structured analysis fields if available
+            if structured_analysis:
+                response_dict.update(structured_analysis)
+                print(f"📊 Including structured analysis in single response: {list(structured_analysis.keys())}")
+            
+            return response_dict
             
         except Exception as e:
             print(f"❌ Google API error: {e}")

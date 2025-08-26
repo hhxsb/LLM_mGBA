@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🎮 AI GBA Player</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+</head>
+<body>
+    <div class="app-container">
+        <div class="config-panel">
+            <div class="config-header">
+                <h2>🎮 AI GBA Player</h2>
+                <div class="status-indicator" id="service-status">
+                    <span class="status-stopped">🔌 Connection Ready</span>
+                </div>
+            </div>
+            <div class="config-content">
+                <div class="config-section">
+                    <h3>🔗 mGBA Connection</h3>
+                    <button class="btn btn-success" onclick="startService()">🔗 Reset mGBA Connection</button>
+                    <button class="btn btn-outline" onclick="stopService()">🔌 Stop Connection</button>
+                    <button class="btn btn-primary" onclick="launchMGBA()">🎮 Launch mGBA</button>
+                </div>
+                <div class="config-section">
+                    <h3>🎮 ROM Configuration</h3>
+                    <div class="form-group">
+                        <label>ROM File Path</label>
+                        <input type="text" id="rom-path" value="{{ config.rom_path }}" placeholder="/path/to/game.gba">
+                    </div>
+                    <div class="form-group">
+                        <label>mGBA Executable</label>
+                        <input type="text" id="mgba-path" value="{{ config.mgba_path }}" placeholder="/Applications/mGBA.app/Contents/MacOS/mGBA">
+                    </div>
+                    <button class="btn btn-outline" onclick="saveConfig()">💾 Save Config</button>
+                </div>
+                <div class="config-section">
+                    <h3>🤖 AI Settings</h3>
+                    <div class="form-group">
+                        <label>LLM Provider</label>
+                        <select id="llm-provider">
+                            <option value="gemini" {% if config.llm_provider == "gemini" %}selected{% endif %}>Google Gemini</option>
+                            <option value="openai" {% if config.llm_provider == "openai" %}selected{% endif %}>OpenAI</option>
+                            <option value="anthropic" {% if config.llm_provider == "anthropic" %}selected{% endif %}>Anthropic</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" id="api-key" value="{{ config.api_key }}" placeholder="Enter API key">
+                    </div>
+                    <div class="form-group">
+                        <label>Decision Cooldown (seconds)</label>
+                        <input type="number" id="cooldown" value="{{ config.cooldown }}" min="1" max="10">
+                    </div>
+                    
+                    <details style="margin: 15px 0; border: 1px solid #e1e8ed; border-radius: 6px;">
+                        <summary style="padding: 10px; cursor: pointer; background: #f8f9fa; font-weight: 500;">⏱️ Advanced Timing Settings</summary>
+                        <div style="padding: 10px;">
+                            <div class="form-group">
+                                <label>Base Stabilization (seconds)</label>
+                                <input type="number" id="base-stabilization" value="{{ config.base_stabilization }}" min="0.1" max="2.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Minimum wait time for game state to stabilize</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Movement Delay (seconds)</label>
+                                <input type="number" id="movement-multiplier" value="{{ config.movement_multiplier }}" min="0.1" max="1.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for movement actions (UP/DOWN/LEFT/RIGHT)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Interaction Delay (seconds)</label>
+                                <input type="number" id="interaction-multiplier" value="{{ config.interaction_multiplier }}" min="0.1" max="1.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for interaction actions (A/B buttons)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Menu Delay (seconds)</label>
+                                <input type="number" id="menu-multiplier" value="{{ config.menu_multiplier }}" min="0.2" max="2.0" step="0.1">
+                                <small style="color: #6b7280; font-size: 11px;">Extra delay for menu actions (START/SELECT)</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Maximum Wait Time (seconds)</label>
+                                <input type="number" id="max-wait-time" value="{{ config.max_wait_time }}" min="1" max="10" step="0.5">
+                                <small style="color: #6b7280; font-size: 11px;">Maximum total wait time regardless of actions</small>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <button class="btn btn-outline" onclick="saveAIConfig()">💾 Save AI Config</button>
+                    <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
+                </div>
+                <div class="config-section">
+                    <h3>📝 AI Memory Log</h3>
+                    <div class="notepad-display" id="notepad-display">
+                        <div class="notepad-header">
+                            <span class="notepad-status" id="notepad-status">No updates yet</span>
+                            <span class="entry-count" id="entry-count">0 entries</span>
+                        </div>
+                        <div class="notepad-content" id="notepad-content">
+                            <div class="notepad-empty">Waiting for AI memory updates...</div>
+                        </div>
+                        <button class="btn btn-outline" onclick="clearNotepad()" style="background: #dc2626; color: white; margin-top: 8px; font-size: 11px; padding: 6px 12px;">🗑️ Clear Notepad</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="chat-container">
+            <div class="chat-header">
+                <div class="chat-title">💬 AI Game Session</div>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-message">
+                    <h3>🎮 AI GBA Player Ready</h3>
+                    <p>Configure your ROM and AI settings, then start the service to begin.</p>
+                    <p>Images sent to AI and AI responses will appear here.</p>
+                </div>
+            </div>
+            <!-- Narration Banner -->
+            <div class="narration-banner" id="narrationBanner" style="display: none;">
+                <div class="narration-content">
+                    <div class="narration-icon">🎤</div>
+                    <div class="narration-text">
+                        <div class="narration-main" id="narrationMain">Narration will appear here...</div>
+                        <div class="narration-meta" id="narrationMeta">
+                            <span class="energy-level" id="energyLevel">neutral</span>
+                            <span class="tts-status" id="ttsStatus"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-controls">
+                <div class="controls-row">
+                    <button class="control-btn" onclick="clearChat()">🗑️ Clear Chat</button>
+                    <button class="control-btn" onclick="exportChat()">📥 Export</button>
+                    <button class="control-btn" onclick="toggleAutoScroll()" id="auto-scroll-btn">🔄 Auto-scroll: ON</button>
+                    <span style="margin-left: auto; font-size: 12px; color: #6b7280;">
+                        <span id="message-count">0</span> messages
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load JavaScript from separate file -->
+    <script src="{% static 'dashboard/js/dashboard.js' %}"></script>
+</body>
+</html>

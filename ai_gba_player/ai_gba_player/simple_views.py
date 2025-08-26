@@ -3,11 +3,9 @@ Primary views and API endpoints for AI GBA Player.
 All HTML/CSS/JS embedded directly for simplified architecture.
 """
 from django.http import JsonResponse, HttpResponse
-import subprocess
 import time
 import os
 import json
-from pathlib import Path
 
 # Simple configuration storage (in a real app this would be in database)
 CONFIG_FILE = '/tmp/ai_gba_player_config.json'
@@ -94,781 +92,32 @@ def save_config_to_file(config):
         return False
 
 def dashboard_view(request):
-    """Chat-based AI monitoring dashboard"""
+    """Chat-based AI monitoring dashboard using Django templates"""
+    from django.shortcuts import render
+    
     # Load saved configuration
     config = load_config()
     
-    # Prepare template variables
-    rom_path = config.get('rom_path', '')
-    mgba_path = config.get('mgba_path', '')
-    api_key = config.get('api_key', '')
-    cooldown = config.get('cooldown', 3)
-    provider = config.get('llm_provider', 'gemini')
+    # Prepare template context
+    context = {
+        'config': {
+            'rom_path': config.get('rom_path', ''),
+            'mgba_path': config.get('mgba_path', ''),
+            'api_key': config.get('api_key', ''),
+            'cooldown': config.get('cooldown', 3),
+            'llm_provider': config.get('llm_provider', 'gemini'),
+            'base_stabilization': config.get('base_stabilization', 0.5),
+            'movement_multiplier': config.get('movement_multiplier', 0.8),
+            'interaction_multiplier': config.get('interaction_multiplier', 0.6),
+            'menu_multiplier': config.get('menu_multiplier', 0.4),
+            'max_wait_time': config.get('max_wait_time', 10.0),
+        }
+    }
     
-    # Timing configuration
-    base_stabilization = config.get('base_stabilization', 0.5)
-    movement_multiplier = config.get('movement_multiplier', 0.8)
-    interaction_multiplier = config.get('interaction_multiplier', 0.6)
-    menu_multiplier = config.get('menu_multiplier', 0.4)
-    max_wait_time = config.get('max_wait_time', 10.0)
-    
-    # Provider options
-    gemini_selected = 'selected' if provider == 'gemini' else ''
-    openai_selected = 'selected' if provider == 'openai' else ''
-    anthropic_selected = 'selected' if provider == 'anthropic' else ''
-    
-    # Create HTML content with simple string replacement to avoid CSS brace conflicts
-    html_template = '''<!DOCTYPE html>
-<html>
-<head>
-    <title>🎮 AI GBA Player</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; background: #f0f2f5; overflow: hidden; }
-        .app-container { display: flex; height: 100vh; }
-        .config-panel { width: 300px; background: white; border-right: 1px solid #e1e8ed; display: flex; flex-direction: column; }
-        .config-header { padding: 20px; border-bottom: 1px solid #e1e8ed; background: #6366f1; color: white; }
-        .config-content { padding: 20px; flex: 1; overflow-y: auto; }
-        .config-section { margin-bottom: 25px; }
-        .config-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: #374151; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; color: #6b7280; }
-        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-        .btn { width: 100%; padding: 10px; border: none; border-radius: 6px; font-weight: 500; cursor: pointer; margin-bottom: 8px; }
-        .btn-primary { background: #6366f1; color: white; }
-        .btn-success { background: #10b981; color: white; }
-        .btn-outline { background: white; border: 1px solid #d1d5db; color: #374151; }
-        .btn:hover { opacity: 0.9; }
-        .status-indicator { display: inline-flex; align-items: center; font-size: 12px; padding: 4px 8px; border-radius: 4px; margin-top: 5px; }
-        .status-running { background: #dcfce7; color: #166534; }
-        .status-stopped { background: #fef3f2; color: #dc2626; }
-        .chat-container { flex: 1; display: flex; flex-direction: column; }
-        .chat-header { padding: 15px 20px; background: white; border-bottom: 1px solid #e1e8ed; display: flex; justify-content: between; align-items: center; }
-        .chat-title { font-size: 18px; font-weight: 600; color: #1f2937; }
-        .chat-messages { flex: 1; overflow-y: auto; padding: 20px; background: #f9fafb; }
-        .message { margin-bottom: 20px; display: flex; flex-direction: column; }
-        .message-sent { align-items: flex-end; }
-        .message-received { align-items: flex-start; }
-        .message-bubble { max-width: 70%; padding: 12px 16px; border-radius: 18px; position: relative; }
-        .message-sent .message-bubble { background: #6366f1; color: white; }
-        .message-received .message-bubble { background: white; border: 1px solid #e1e8ed; }
-        .message-timestamp { font-size: 11px; color: #6b7280; margin: 5px 8px; }
-        .message-image { max-width: 300px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .message-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3f4f6; }
-        .action-item { display: inline-block; background: #f3f4f6; padding: 4px 8px; border-radius: 12px; font-size: 12px; margin: 2px; font-weight: 500; }
-        .action-item.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-        .error-message { border-left: 4px solid #ef4444 !important; background: #fefeff !important; }
-        .error-expandable { margin-top: 8px; }
-        .error-toggle { cursor: pointer; font-size: 12px; color: #ef4444; user-select: none; }
-        .error-toggle:hover { color: #dc2626; }
-        .error-details { background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; font-size: 11px; font-family: monospace; color: #b91c1c; }
-        .welcome-message { text-align: center; color: #6b7280; padding: 40px; }
-        .chat-controls { padding: 15px 20px; background: white; border-top: 1px solid #e1e8ed; }
-        .controls-row { display: flex; gap: 10px; }
-        .control-btn { padding: 8px 12px; border: 1px solid #d1d5db; background: white; border-radius: 6px; font-size: 12px; cursor: pointer; }
-        .control-btn:hover { background: #f9fafb; }
-        .notepad-display { border: 1px solid #e1e8ed; border-radius: 6px; background: #f8f9fa; overflow: hidden; }
-        .notepad-header { background: #6366f1; color: white; padding: 8px 12px; display: flex; justify-content: space-between; font-size: 11px; }
-        .notepad-status { font-weight: 500; }
-        .entry-count { opacity: 0.8; }
-        .notepad-content { max-height: 180px; overflow-y: auto; padding: 8px; font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; line-height: 1.4; }
-        .notepad-entry { background: white; border: 1px solid #e1e8ed; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; }
-        .notepad-entry:last-child { margin-bottom: 0; }
-        .notepad-entry-header { color: #6366f1; font-weight: 600; margin-bottom: 2px; }
-        .notepad-entry-content { color: #374151; white-space: pre-wrap; }
-        .notepad-entry.new { background: #fef3cd; border-color: #f59e0b; animation: highlight 2s ease-out; }
-        .notepad-empty { color: #6b7280; text-align: center; padding: 20px; font-style: italic; }
-        @keyframes highlight { from { background: #fbbf24; } to { background: #fef3cd; } }
-        
-        /* Before/After Screenshot Styling */
-        .ai-decision-bubble { max-width: 90% !important; }
-        .decision-header { font-weight: 600; margin-bottom: 12px; color: #1f2937; }
-        .screenshot-comparison { margin: 12px 0; }
-        .before-after-container { display: flex; gap: 15px; justify-content: space-between; }
-        .screenshot-side { flex: 1; text-align: center; }
-        .screenshot-side label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 6px; color: #6366f1; }
-        .comparison-image { width: 100%; max-width: 200px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .ai-reasoning { margin: 12px 0; padding: 10px 14px; background: #eff6ff; border-radius: 8px; font-size: 13px; color: #1e40af; border-left: 4px solid #3b82f6; }
-        .results-analysis { margin-top: 12px; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #4b5563; border-left: 3px solid #6366f1; }
-    </style>
-</head>
-<body>
-    <div class="app-container">
-        <div class="config-panel">
-            <div class="config-header">
-                <h2>🎮 AI GBA Player</h2>
-                <div class="status-indicator" id="service-status">
-                    <span class="status-stopped">🔌 Connection Ready</span>
-                </div>
-            </div>
-            <div class="config-content">
-                <div class="config-section">
-                    <h3>🔗 mGBA Connection</h3>
-                    <button class="btn btn-success" onclick="startService()">🔗 Reset mGBA Connection</button>
-                    <button class="btn btn-outline" onclick="stopService()">🔌 Stop Connection</button>
-                    <button class="btn btn-primary" onclick="launchMGBA()">🎮 Launch mGBA</button>
-                </div>
-                <div class="config-section">
-                    <h3>🎮 ROM Configuration</h3>
-                    <div class="form-group">
-                        <label>ROM File Path</label>
-                        <input type="text" id="rom-path" value="ROM_PATH_PLACEHOLDER" placeholder="/path/to/game.gba">
-                    </div>
-                    <div class="form-group">
-                        <label>mGBA Executable</label>
-                        <input type="text" id="mgba-path" value="MGBA_PATH_PLACEHOLDER" placeholder="/Applications/mGBA.app/Contents/MacOS/mGBA">
-                    </div>
-                    <button class="btn btn-outline" onclick="saveConfig()">💾 Save Config</button>
-                </div>
-                <div class="config-section">
-                    <h3>🤖 AI Settings</h3>
-                    <div class="form-group">
-                        <label>LLM Provider</label>
-                        <select id="llm-provider">
-                            <option value="gemini" GEMINI_SELECTED_PLACEHOLDER>Google Gemini</option>
-                            <option value="openai" OPENAI_SELECTED_PLACEHOLDER>OpenAI</option>
-                            <option value="anthropic" ANTHROPIC_SELECTED_PLACEHOLDER>Anthropic</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>API Key</label>
-                        <input type="password" id="api-key" value="API_KEY_PLACEHOLDER" placeholder="Enter API key">
-                    </div>
-                    <div class="form-group">
-                        <label>Decision Cooldown (seconds)</label>
-                        <input type="number" id="cooldown" value="COOLDOWN_PLACEHOLDER" min="1" max="10">
-                    </div>
-                    
-                    <details style="margin: 15px 0; border: 1px solid #e1e8ed; border-radius: 6px;">
-                        <summary style="padding: 10px; cursor: pointer; background: #f8f9fa; font-weight: 500;">⏱️ Advanced Timing Settings</summary>
-                        <div style="padding: 10px;">
-                            <div class="form-group">
-                                <label>Base Stabilization (seconds)</label>
-                                <input type="number" id="base-stabilization" value="BASE_STABILIZATION_PLACEHOLDER" min="0.1" max="2.0" step="0.1">
-                                <small style="color: #6b7280; font-size: 11px;">Minimum wait time for game state to stabilize</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Movement Delay (seconds)</label>
-                                <input type="number" id="movement-multiplier" value="MOVEMENT_MULTIPLIER_PLACEHOLDER" min="0.1" max="1.0" step="0.1">
-                                <small style="color: #6b7280; font-size: 11px;">Extra delay for movement actions (UP/DOWN/LEFT/RIGHT)</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Interaction Delay (seconds)</label>
-                                <input type="number" id="interaction-multiplier" value="INTERACTION_MULTIPLIER_PLACEHOLDER" min="0.1" max="1.0" step="0.1">
-                                <small style="color: #6b7280; font-size: 11px;">Extra delay for interaction actions (A/B buttons)</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Menu Delay (seconds)</label>
-                                <input type="number" id="menu-multiplier" value="MENU_MULTIPLIER_PLACEHOLDER" min="0.2" max="2.0" step="0.1">
-                                <small style="color: #6b7280; font-size: 11px;">Extra delay for menu actions (START/SELECT)</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Maximum Wait Time (seconds)</label>
-                                <input type="number" id="max-wait-time" value="MAX_WAIT_TIME_PLACEHOLDER" min="1" max="10" step="0.5">
-                                <small style="color: #6b7280; font-size: 11px;">Maximum total wait time regardless of actions</small>
-                            </div>
-                        </div>
-                    </details>
-                    
-                    <button class="btn btn-outline" onclick="saveAIConfig()">💾 Save AI Config</button>
-                    <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
-                </div>
-                <div class="config-section">
-                    <h3>📝 AI Memory Log</h3>
-                    <div class="notepad-display" id="notepad-display">
-                        <div class="notepad-header">
-                            <span class="notepad-status" id="notepad-status">No updates yet</span>
-                            <span class="entry-count" id="entry-count">0 entries</span>
-                        </div>
-                        <div class="notepad-content" id="notepad-content">
-                            <div class="notepad-empty">Waiting for AI memory updates...</div>
-                        </div>
-                        <button class="btn btn-outline" onclick="clearNotepad()" style="background: #dc2626; color: white; margin-top: 8px; font-size: 11px; padding: 6px 12px;">🗑️ Clear Notepad</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="chat-container">
-            <div class="chat-header">
-                <div class="chat-title">💬 AI Game Session</div>
-            </div>
-            <div class="chat-messages" id="chat-messages">
-                <div class="welcome-message">
-                    <h3>🎮 AI GBA Player Ready</h3>
-                    <p>Configure your ROM and AI settings, then start the service to begin.</p>
-                    <p>Images sent to AI and AI responses will appear here.</p>
-                </div>
-            </div>
-            <div class="chat-controls">
-                <div class="controls-row">
-                    <button class="control-btn" onclick="clearChat()">🗑️ Clear Chat</button>
-                    <button class="control-btn" onclick="exportChat()">📥 Export</button>
-                    <button class="control-btn" onclick="toggleAutoScroll()" id="auto-scroll-btn">🔄 Auto-scroll: ON</button>
-                    <span style="margin-left: auto; font-size: 12px; color: #6b7280;">
-                        <span id="message-count">0</span> messages
-                    </span>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script>
-        let messageCount = 0;
-        let autoScroll = true;
-        let lastMessageCount = 0;
-        let lastProcessedMessageId = 0;  // Track last processed message ID
-        let pollingInterval = null;
-        let lastNotepadUpdate = null;  // Track last notepad update time
-        let lastEntryCount = 0;  // Track entry count for change detection
-        
-        // Start polling for messages when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            startMessagePolling();
-        });
-        
-        function startMessagePolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            
-            pollingInterval = setInterval(() => {
-                pollForMessages();
-                pollForNotepadUpdates();
-            }, 2000); // Poll every 2 seconds
-            
-            pollForMessages(); // Initial poll
-            pollForNotepadUpdates(); // Initial notepad poll
-        }
-        
-        function pollForMessages() {
-            fetch('/api/chat-messages/')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.messages) {
-                        // Handle message buffer rotation - check for message ID gaps
-                        const messages = data.messages;
-                        if (messages.length > 0) {
-                            // Use message IDs to detect if buffer has rotated
-                            const lastMessageId = messages[messages.length - 1].id;
-                            if (lastMessageId && lastProcessedMessageId && lastMessageId < lastProcessedMessageId) {
-                                // Buffer has rotated, clear chat and reload all messages
-                                document.getElementById('chat-messages').innerHTML = '';
-                                messages.forEach(message => displayMessage(message));
-                                lastProcessedMessageId = lastMessageId;
-                            } else {
-                                // Normal incremental update
-                                const newMessages = messages.filter(msg => 
-                                    !lastProcessedMessageId || (msg.id && msg.id > lastProcessedMessageId)
-                                );
-                                newMessages.forEach(message => displayMessage(message));
-                                if (newMessages.length > 0) {
-                                    lastProcessedMessageId = newMessages[newMessages.length - 1].id;
-                                }
-                            }
-                        }
-                        
-                        // Update service status with buffer info
-                        updateServiceStatusFromData(data);
-                        
-                        // Show buffer status if available
-                        if (data.total_messages && data.buffer_size) {
-                            console.log(`Messages: ${data.buffer_size}/${data.max_buffer_size} (total: ${data.total_messages})`);
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error polling messages:', error);
-                });
-        }
-        
-        function pollForNotepadUpdates() {
-            fetch('/api/notepad-content/')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateNotepadDisplay(data);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error polling notepad:', error);
-                    document.getElementById('notepad-status').textContent = 'Error loading';
-                });
-        }
-        
-        function updateNotepadDisplay(data) {
-            const statusEl = document.getElementById('notepad-status');
-            const countEl = document.getElementById('entry-count');
-            const contentEl = document.getElementById('notepad-content');
-            
-            // Update status and count
-            statusEl.textContent = `Last: ${data.last_updated}`;
-            countEl.textContent = `${data.entry_count} entries`;
-            
-            // Check if there are new entries
-            const hasNewEntries = data.entry_count > lastEntryCount;
-            lastEntryCount = data.entry_count;
-            
-            // Display recent entries
-            if (data.recent_entries && data.recent_entries.length > 0) {
-                let entriesHtml = '';
-                data.recent_entries.forEach((entry, index) => {
-                    const lines = entry.split('\\n');
-                    const header = lines[0]; // ## Update timestamp
-                    const content = lines.slice(1).join('\\n').trim();
-                    
-                    const isNew = hasNewEntries && index === data.recent_entries.length - 1;
-                    const newClass = isNew ? ' new' : '';
-                    
-                    entriesHtml += `
-                        <div class="notepad-entry${newClass}">
-                            <div class="notepad-entry-header">${header}</div>
-                            <div class="notepad-entry-content">${content}</div>
-                        </div>
-                    `;
-                });
-                contentEl.innerHTML = entriesHtml;
-                
-                // Auto-scroll to bottom if new entry
-                if (hasNewEntries) {
-                    contentEl.scrollTop = contentEl.scrollHeight;
-                }
-            } else {
-                contentEl.innerHTML = '<div class="notepad-empty">No memory updates yet...</div>';
-            }
-        }
-        
-        function displayMessage(message) {
-            if (message.type === 'system') {
-                addSystemMessage(message.content, message.timestamp);
-            } else if (message.type === 'screenshot') {
-                addScreenshotMessage(message.image_data, message.game_state, message.timestamp);
-            } else if (message.type === 'screenshot_comparison') {
-                addScreenshotComparisonMessage(message);
-            } else if (message.type === 'ai_response') {
-                addAIResponse(message.text, message.actions, message.timestamp, message.error_details);
-            }
-        }
-        
-        function addScreenshotMessage(imageData, gameState, timestamp = null) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-sent';
-            
-            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-            
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div style="font-weight: 500; margin-bottom: 4px;">📤 Screenshot Sent to AI</div>
-                    <img src="${imageData}" class="message-image" alt="Game screenshot">
-                    <div style="font-size: 12px; margin-top: 8px; color: #6b7280;">${gameState}</div>
-                </div>
-                <div class="message-timestamp">${timeStr}</div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function updateServiceStatusFromData(data) {
-            if (data.status === 'running' && data.connected) {
-                updateServiceStatus('🔗 Connected to mGBA', 'running');
-            } else if (data.status === 'running' && !data.connected) {
-                updateServiceStatus('⏳ Waiting for mGBA', 'running');
-            } else if (data.status === 'stopped') {
-                updateServiceStatus('🔌 Connection Ready', 'stopped');
-            } else {
-                updateServiceStatus('❌ Error', 'error');
-            }
-        }
-        
-        function startService() {
-            updateServiceStatus('🔄 Connecting...', 'starting');
-            fetch('/api/restart-service/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    updateServiceStatus('🔗 Connected', 'running');
-                    addSystemMessage(data.message);
-                } else {
-                    updateServiceStatus('❌ Error', 'error');
-                    addSystemMessage('Connection failed: ' + data.message);
-                }
-            })
-            .catch(error => {
-                updateServiceStatus('❌ Error', 'error');
-                addSystemMessage('Connection error: ' + error.message);
-            });
-        }
-        
-        function stopService() {
-            updateServiceStatus('🔌 Disconnecting...', 'stopping');
-            fetch('/api/stop-service/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    updateServiceStatus('🔌 Connection Ready', 'stopped');
-                    addSystemMessage(data.message);
-                } else {
-                    updateServiceStatus('❌ Error', 'error');
-                    addSystemMessage('Failed to disconnect: ' + data.message);
-                }
-            })
-            .catch(error => {
-                updateServiceStatus('❌ Error', 'error');
-                addSystemMessage('Disconnect error: ' + error.message);
-            });
-        }
-        
-        function launchMGBA() {
-            fetch('/api/launch-mgba-config/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => addSystemMessage(data.message))
-            .catch(error => addSystemMessage('Error launching mGBA: ' + error.message));
-        }
-        
-        function saveConfig() {
-            const romPath = document.getElementById('rom-path').value;
-            const mgbaPath = document.getElementById('mgba-path').value;
-            
-            const formData = new FormData();
-            formData.append('rom_path', romPath);
-            formData.append('mgba_path', mgbaPath);
-            
-            fetch('/api/save-rom-config/', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                addSystemMessage(data.message);
-            })
-            .catch(error => addSystemMessage('Error saving ROM config: ' + error.message));
-        }
-        
-        function saveAIConfig() {
-            const provider = document.getElementById('llm-provider').value;
-            const apiKey = document.getElementById('api-key').value;
-            const cooldown = document.getElementById('cooldown').value;
-            
-            // Get timing configuration values
-            const baseStabilization = document.getElementById('base-stabilization').value;
-            const movementMultiplier = document.getElementById('movement-multiplier').value;
-            const interactionMultiplier = document.getElementById('interaction-multiplier').value;
-            const menuMultiplier = document.getElementById('menu-multiplier').value;
-            const maxWaitTime = document.getElementById('max-wait-time').value;
-            
-            const formData = new FormData();
-            formData.append('llm_provider', provider);
-            formData.append('api_key', apiKey);
-            formData.append('cooldown', cooldown);
-            
-            // Add timing configuration
-            formData.append('base_stabilization', baseStabilization);
-            formData.append('movement_multiplier', movementMultiplier);
-            formData.append('interaction_multiplier', interactionMultiplier);
-            formData.append('menu_multiplier', menuMultiplier);
-            formData.append('max_wait_time', maxWaitTime);
-            
-            fetch('/api/save-ai-config/', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                addSystemMessage(data.message);
-            })
-            .catch(error => addSystemMessage('Error saving AI config: ' + error.message));
-        }
-        
-        function updateServiceStatus(text, status) {
-            const statusEl = document.getElementById('service-status');
-            statusEl.innerHTML = '<span class="status-' + status + '">' + text + '</span>';
-        }
-        
-        function addSystemMessage(text, timestamp = null) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-received';
-            
-            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-            
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div style="font-weight: 500; margin-bottom: 4px;">🤖 System</div>
-                    <div>${text}</div>
-                </div>
-                <div class="message-timestamp">${timeStr}</div>
-            `;
-            
-            const welcome = messagesContainer.querySelector('.welcome-message');
-            if (welcome) welcome.remove();
-            
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function addImageMessage(imageUrl) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-sent';
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <img src="${imageUrl}" class="message-image" alt="Game screenshot">
-                </div>
-                <div class="message-timestamp">${new Date().toLocaleTimeString()}</div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function addAIResponse(response, actions, timestamp = null, error_details = null) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-received';
-            
-            const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-            
-            let actionsHtml = '';
-            if (actions && actions.length > 0) {
-                actionsHtml = '<div class="message-actions">' + 
-                    actions.map(action => `<span class="action-item">🎮 ${action}</span>`).join('') + 
-                    '</div>';
-            } else if (error_details) {
-                // Show "No actions" for errors
-                actionsHtml = '<div class="message-actions"><span class="action-item error">⏸️ No actions (error occurred)</span></div>';
-            }
-            
-            // Check if this is an error message
-            const isError = response.includes('⚠️ An error occurred');
-            const messageClass = isError ? 'error-message' : '';
-            
-            let errorDetailsHtml = '';
-            if (isError && error_details) {
-                const detailsId = 'error-details-' + Date.now() + Math.random().toString(36).substr(2, 9);
-                errorDetailsHtml = `
-                    <div class="error-expandable" style="margin-top: 8px;">
-                        <div class="error-toggle" onclick="toggleErrorDetails('${detailsId}')" style="cursor: pointer; font-size: 12px; color: #ef4444;">
-                            ▶ Show error details
-                        </div>
-                        <div id="${detailsId}" class="error-details" style="display: none; margin-top: 4px; padding: 8px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; font-size: 11px; font-family: monospace; color: #b91c1c;">
-                            ${error_details}
-                        </div>
-                    </div>
-                `;
-            }
-            
-            messageDiv.innerHTML = `
-                <div class="message-bubble ${messageClass}">
-                    <div style="font-weight: 500; margin-bottom: 4px;">${isError ? '❌ AI Error' : '🤖 AI Response'}</div>
-                    <div>${response}</div>
-                    ${actionsHtml}
-                    ${errorDetailsHtml}
-                </div>
-                <div class="message-timestamp">${timeStr}</div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function toggleErrorDetails(detailsId) {
-            const details = document.getElementById(detailsId);
-            const toggle = details.previousElementSibling;
-            
-            if (details.style.display === 'none') {
-                details.style.display = 'block';
-                toggle.innerHTML = '▼ Hide error details';
-            } else {
-                details.style.display = 'none';
-                toggle.innerHTML = '▶ Show error details';
-            }
-        }
-        
-        function addScreenshotComparisonMessage(message) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-sent';
-            
-            const timeStr = new Date(message.timestamp).toLocaleTimeString();
-            
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div style="font-weight: 500; margin-bottom: 8px;">📤 Screenshots Sent to AI</div>
-                    <div style="margin-bottom: 8px;">${message.game_state}</div>
-                    
-                    <div class="screenshot-comparison">
-                        <div class="before-after-container">
-                            <div class="screenshot-side">
-                                <label>PREVIOUS:</label>
-                                <img src="${message.previous_image_data}" class="comparison-image" alt="Previous screenshot">
-                            </div>
-                            <div class="screenshot-side">
-                                <label>CURRENT:</label>
-                                <img src="${message.current_image_data}" class="comparison-image" alt="Current screenshot">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="message-timestamp">${timeStr}</div>
-            `;
-            
-            const welcome = messagesContainer.querySelector('.welcome-message');
-            if (welcome) welcome.remove();
-            
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function addActionAnalysis(message) {
-            const messagesContainer = document.getElementById('chat-messages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-received';
-            
-            const timeStr = new Date(message.timestamp * 1000).toLocaleTimeString();
-            
-            messageDiv.innerHTML = `
-                <div class="message-bubble">
-                    <div style="font-weight: 500; margin-bottom: 8px;">🔍 Action Analysis</div>
-                    
-                    <div class="screenshot-comparison">
-                        <div class="before-after-container">
-                            <div class="screenshot-side">
-                                <label>BEFORE:</label>
-                                <img src="${message.before_image_data}" class="comparison-image" alt="Before screenshot">
-                            </div>
-                            <div class="screenshot-side">
-                                <label>AFTER:</label>
-                                <img src="${message.after_image_data}" class="comparison-image" alt="After screenshot">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="results-analysis">
-                        <strong>Analysis:</strong> ${message.results_analysis}
-                    </div>
-                </div>
-                <div class="message-timestamp">${timeStr}</div>
-            `;
-            
-            const welcome = messagesContainer.querySelector('.welcome-message');
-            if (welcome) welcome.remove();
-            
-            messagesContainer.appendChild(messageDiv);
-            updateMessageCount();
-            scrollToBottom();
-        }
-        
-        function clearChat() {
-            const messagesContainer = document.getElementById('chat-messages');
-            messagesContainer.innerHTML = `
-                <div class="welcome-message">
-                    <h3>🎮 Chat Cleared</h3>
-                    <p>New AI session ready to begin.</p>
-                </div>
-            `;
-            messageCount = 0;
-            lastMessageCount = 0; // Reset message tracking
-            updateMessageCount();
-        }
-        
-        function exportChat() {
-            addSystemMessage('Chat export feature coming soon');
-        }
-        
-        function toggleAutoScroll() {
-            autoScroll = !autoScroll;
-            const btn = document.getElementById('auto-scroll-btn');
-            btn.textContent = `🔄 Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
-        }
-        
-        function updateMessageCount() {
-            messageCount++;
-            document.getElementById('message-count').textContent = messageCount;
-        }
-        
-        function scrollToBottom() {
-            if (autoScroll) {
-                const messagesContainer = document.getElementById('chat-messages');
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }
-        }
-        
-        function resetLLMSession() {
-            fetch('/api/reset-llm-session/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                addSystemMessage(data.message);
-            })
-            .catch(error => addSystemMessage('Error resetting LLM session: ' + error.message));
-        }
-        
-        function clearNotepad() {
-            fetch('/api/clear-notepad/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                addSystemMessage(data.message);
-                // Immediately refresh notepad display
-                pollForNotepadUpdates();
-            })
-            .catch(error => addSystemMessage('Error clearing notepad: ' + error.message));
-        }
-        
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
-    </script>
-</body>
-</html>'''
-    
-    # Replace placeholders with actual values
-    html_content = html_template.replace('ROM_PATH_PLACEHOLDER', rom_path)
-    html_content = html_content.replace('MGBA_PATH_PLACEHOLDER', mgba_path)
-    html_content = html_content.replace('API_KEY_PLACEHOLDER', api_key)
-    html_content = html_content.replace('COOLDOWN_PLACEHOLDER', str(cooldown))
-    html_content = html_content.replace('GEMINI_SELECTED_PLACEHOLDER', gemini_selected)
-    html_content = html_content.replace('OPENAI_SELECTED_PLACEHOLDER', openai_selected)
-    html_content = html_content.replace('ANTHROPIC_SELECTED_PLACEHOLDER', anthropic_selected)
-    
-    # Replace timing configuration placeholders
-    html_content = html_content.replace('BASE_STABILIZATION_PLACEHOLDER', str(base_stabilization))
-    html_content = html_content.replace('MOVEMENT_MULTIPLIER_PLACEHOLDER', str(movement_multiplier))
-    html_content = html_content.replace('INTERACTION_MULTIPLIER_PLACEHOLDER', str(interaction_multiplier))
-    html_content = html_content.replace('MENU_MULTIPLIER_PLACEHOLDER', str(menu_multiplier))
-    html_content = html_content.replace('MAX_WAIT_TIME_PLACEHOLDER', str(max_wait_time))
-    
-    return HttpResponse(html_content)
+    return render(request, 'dashboard/simple_dashboard.html', context)
 
-def config_view(request):
+
+def config_view(_request):
     """Simple config view"""
     html_content = """
     <!DOCTYPE html>
@@ -935,7 +184,7 @@ def config_view(request):
     """
     return HttpResponse(html_content)
 
-def restart_service(request):
+def restart_service(_request):
     """Start/restart the AI Game Service"""
     try:
         # Import the new AI service
@@ -972,7 +221,7 @@ def restart_service(request):
             'message': f'❌ Error: {str(e)}'
         })
 
-def stop_service(request):
+def stop_service(_request):
     """Stop the AI Game Service"""
     try:
         import sys
@@ -1007,7 +256,7 @@ def stop_service(request):
             'message': f'❌ Error: {str(e)}'
         })
 
-def reset_llm_session(request):
+def reset_llm_session(_request):
     """Reset the LLM session to clear conversation history"""
     try:
         import sys
@@ -1038,7 +287,7 @@ def reset_llm_session(request):
             'message': f'❌ Error resetting session: {str(e)}'
         })
 
-def get_notepad_content(request):
+def get_notepad_content(_request):
     """Get current notepad content for real-time display"""
     try:
         import sys
@@ -1110,7 +359,7 @@ def get_notepad_content(request):
             'entry_count': 0
         })
 
-def clear_notepad(request):
+def clear_notepad(_request):
     """Clear the notepad content"""
     try:
         import sys
@@ -1142,7 +391,7 @@ def clear_notepad(request):
             'message': f'❌ Error clearing notepad: {str(e)}'
         })
 
-def get_chat_messages(request):
+def get_chat_messages(_request):
     """Get recent chat messages and service status"""
     try:
         from dashboard.ai_game_service import get_ai_service
@@ -1182,7 +431,7 @@ def get_chat_messages(request):
             'status': 'error'
         })
 
-def launch_mgba_config(request):
+def launch_mgba_config(_request):
     """Launch mGBA with configured ROM"""
     try:
         # Load saved configuration

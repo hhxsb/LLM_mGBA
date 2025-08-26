@@ -15,12 +15,14 @@ from datetime import datetime
 import base64
 from pathlib import Path
 
-from django.conf import settings
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from .models import Configuration
 from .llm_client import LLMClient
 from .game_detector import get_game_detector
+from .player_agent import PlayerAgent
+from .narration_agent import NarrationAgent
+from .tts_service import TTSService
 
 # Memory service will be imported when Django is ready
 MEMORY_SERVICE_AVAILABLE = False
@@ -74,6 +76,15 @@ class AIGameService(threading.Thread):
         
         # LLM client
         self.llm_client = None
+        
+        # PlayerAgent for game decision making
+        self.player_agent = PlayerAgent()
+        
+        # NarrationAgent for entertainment commentary
+        self.narration_agent = NarrationAgent()
+        
+        # TTSService for narration audio playback
+        self.tts_service = TTSService()
         
         # Game detection
         self.game_detector = get_game_detector()
@@ -364,6 +375,12 @@ class AIGameService(threading.Thread):
         else:
             print("⚠️ No LLM client to reset")
             self._send_chat_message("system", "⚠️ No LLM client active to reset")
+        
+        # Reset PlayerAgent session
+        self.player_agent.reset_session()
+        
+        # Reset NarrationAgent session  
+        self.narration_agent.reset_session()
         
         # Also clear recent actions to start fresh
         self.recent_actions = []
@@ -974,24 +991,49 @@ class AIGameService(threading.Thread):
             # Add movement analysis to context
             movement_analysis = self._get_movement_analysis_text()
             
-            # Call AI with retry logic for better error handling
-            ai_response = self._call_ai_with_retry(
-                current_screenshot=current_path,
-                previous_screenshot=previous_path if previous_path != current_path else None,
+            # Initialize PlayerAgent LLM if needed
+            if not self.player_agent.llm_client:
+                self.player_agent.initialize_llm(config)
+            
+            # Set memory system integration
+            if self.memory_system and not self.player_agent.memory_system:
+                self.player_agent.set_memory_system(self.memory_system)
+            
+            # Call PlayerAgent for decision making
+            player_response = self.player_agent.analyze_and_decide(
+                screenshot_path=current_path,
                 game_state=game_state,
-                config=config,
+                previous_screenshot=previous_path if previous_path != current_path else None,
                 enhanced_context=recent_actions_text + "\n" + movement_analysis
             )
+            
+            # Generate entertaining narration for streaming
+            narration_response = self.narration_agent.generate_narration(
+                player_response.to_dict(), game_state
+            )
+            
+            # Convert narration to speech (non-blocking background playback)
+            tts_status = "Silent"
+            if narration_response.success and narration_response.narration:
+                tts_result = self.tts_service.speak_narration(narration_response.to_dict(), blocking=False)
+                tts_status = "Playing" if tts_result else "Failed"
+            
+            # Send narration message to chat for entertainment
+            if narration_response.success:
+                self._send_narration_message(narration_response.to_dict(), tts_status)
+            
+            # Convert PlayerResponse to dictionary format for backward compatibility
+            ai_response = player_response.to_dict()
             
             # Show AI response in chat (includes both decision and analysis)
             self._send_ai_response_message(ai_response)
             
-            # Extract actions from response
-            actions_to_send = ai_response.get("actions", [])
-            durations_to_send = ai_response.get("durations", [])
+            # Extract actions from PlayerResponse
+            actions_to_send = player_response.actions
+            durations_to_send = player_response.durations
             
             # Check if this is an error response
-            is_error_response = not ai_response.get("success", True)
+            is_error_response = not player_response.success
             
             if is_error_response:
                 print("🚫 Error response detected - not sending any button actions")
@@ -1010,7 +1052,7 @@ class AIGameService(threading.Thread):
                     actions_to_send = ["A"]  # Final fallback for successful responses
             
             # Add to recent actions history
-            reasoning = ai_response.get("text", "No reasoning provided")
+            reasoning = player_response.text or "No reasoning provided"
             if actions_to_send:
                 sequence_description = f"{len(actions_to_send)} actions: {', '.join(actions_to_send)}"
             else:
@@ -1019,9 +1061,6 @@ class AIGameService(threading.Thread):
             
             # Only send button sequences and calculate delays if we have actions
             if actions_to_send:
-                # Record successful AI decision BEFORE sending actions
-                self._record_ai_success((previous_path, current_path), game_state)
-                
                 # Send button sequence to mGBA  
                 self._send_button_sequence(actions_to_send, durations_to_send)
                 
@@ -1404,6 +1443,37 @@ class AIGameService(threading.Thread):
         except Exception as e:
             print(f"❌ Error sending AI response message: {e}")
     
+    def _send_narration_message(self, narration_response: Dict[str, Any], tts_status: str = "Silent"):
+        """Send narration message to chat for entertainment"""
+        try:
+            self.message_counter += 1
+            message = {
+                "type": "narration",
+                "narration": narration_response,  # Include full narration response
+                "tts_status": tts_status,  # Current TTS playback status
+                "timestamp": datetime.now().isoformat(),
+                "id": self.message_counter  # Add unique ID for tracking
+            }
+            
+            # Store in local message buffer
+            self.chat_messages.append(message)
+            if len(self.chat_messages) > self.max_messages:
+                self.chat_messages.pop(0)
+            
+            # Also try WebSocket if available
+            if self.channel_layer:
+                async_to_sync(self.channel_layer.group_send)(
+                    "ai_chat",
+                    {
+                        "type": "narration_message",
+                        "narration": narration_response,
+                        "tts_status": tts_status,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+        except Exception as e:
+            print(f"❌ Error sending narration message: {e}")
+    
     def _initialize_notepad(self):
         """Initialize the notepad file with clear game objectives"""
         if not self.notepad_path.exists():
@@ -1594,87 +1664,6 @@ class AIGameService(threading.Thread):
         time.sleep(2)
         self._request_screenshot()
     
-    def _call_ai_with_retry(self, current_screenshot: str, previous_screenshot: Optional[str], game_state: Dict[str, Any], config: Dict[str, Any], enhanced_context: str) -> Dict[str, Any]:
-        """Call AI API with intelligent retry logic for error handling"""
-        
-        # Store screenshots for potential retry
-        screenshot_pair = (previous_screenshot, current_screenshot)
-        
-        for attempt in range(self.max_retry_attempts + 1):  # +1 for initial attempt
-            try:
-                print(f"🤖 AI API Call (attempt {attempt + 1}/{self.max_retry_attempts + 1})")
-                
-                # Make the actual AI API call
-                ai_response = self._call_ai_api_with_comparison(
-                    current_screenshot=current_screenshot,
-                    previous_screenshot=previous_screenshot,
-                    game_state=game_state,
-                    config=config,
-                    enhanced_context=enhanced_context
-                )
-                
-                # Check if response is successful
-                if ai_response and ai_response.get("success", True):
-                    # Success! Record it and return
-                    if attempt == 0:
-                        # This was the first attempt - record as normal success
-                        self._record_ai_success(screenshot_pair, game_state)
-                    else:
-                        # This was a retry that succeeded
-                        print(f"✅ Retry succeeded on attempt {attempt + 1}")
-                        self._record_ai_success(screenshot_pair, game_state)
-                        self._send_chat_message("system", f"✅ AI recovered after {attempt} retries")
-                    
-                    return ai_response
-                
-                # Response indicates failure - check if retryable
-                error_text = ai_response.get("text", "") if ai_response else ""
-                error_info = ai_response.get("error", "") if ai_response else ""
-                
-                # Create exception from error response for retry logic
-                if "LLM provided no reasoning text" in error_text or "LLM provided empty response" in error_text:
-                    error = Exception(f"Empty LLM response: {error_text}")
-                elif "Google API" in error_info and "500" in error_info:
-                    error = Exception(f"Google API error: {error_info}")
-                elif "timeout" in error_info.lower() or "rate limit" in error_info.lower():
-                    error = Exception(f"API issue: {error_info}")
-                else:
-                    error = Exception(f"LLM error response: {error_text}")
-                
-                # Check if we should retry this error
-                if attempt < self.max_retry_attempts and self._should_retry_error(error):
-                    self._record_ai_failure(error, current_screenshot, game_state)
-                    retry_delay = self._calculate_retry_delay()
-                    print(f"🔄 AI error on attempt {attempt + 1} - retrying with same screenshots after {retry_delay:.1f}s")
-                    print(f"📸 Reusing: {os.path.basename(previous_screenshot or 'None')} vs {os.path.basename(current_screenshot)}")
-                    self._send_chat_message("system", f"🔄 AI retry {attempt + 1} after error: {str(error)[:100]}")
-                    
-                    time.sleep(retry_delay)
-                    continue  # Retry with same screenshots
-                else:
-                    # Max retries reached or non-retryable error
-                    print(f"🚫 AI failed after {attempt + 1} attempts - using fallback")
-                    self._record_ai_failure(error, current_screenshot, game_state)
-                    return ai_response or {"text": "Max retries exceeded", "actions": [], "success": False}
-            
-            except Exception as e:
-                # Actual exception during API call
-                if attempt < self.max_retry_attempts and self._should_retry_error(e):
-                    self._record_ai_failure(e, current_screenshot, game_state)
-                    retry_delay = self._calculate_retry_delay()
-                    print(f"🔄 AI exception on attempt {attempt + 1} - retrying after {retry_delay:.1f}s: {e}")
-                    self._send_chat_message("system", f"🔄 API retry {attempt + 1} after exception: {str(e)[:100]}")
-                    
-                    time.sleep(retry_delay)
-                    continue  # Retry with same screenshots
-                else:
-                    # Max retries reached or non-retryable error
-                    print(f"❌ AI exception after {attempt + 1} attempts: {e}")
-                    self._record_ai_failure(e, current_screenshot, game_state)
-                    return {"text": f"API error: {str(e)}", "actions": [], "success": False, "error": str(e)}
-        
-        # This should never be reached, but just in case
-        return {"text": "Unexpected error in retry logic", "actions": [], "success": False}
     
     def _process_memory_updates(self, ai_response: Dict[str, Any], game_state: Dict[str, Any], actions_taken: list):
         """Process AI response for autonomous objective discovery and strategy learning"""

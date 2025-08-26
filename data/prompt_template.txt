@@ -58,4 +58,10 @@ IMPORTANT: After each significant change (entering new area, talking to someone,
 2. **Describe**: Current game state and spatial situation (2-3 sentences)  
 3. **Learn**: If previous actions didn't work as expected, adjust your approach
 4. **Plan**: Navigation with precise timing - destination coordinates, movement units, turn calculations
-5. **Execute**: Use press_button_sequence function with calculated durations based on what you learned
+5. **Execute**: Use BOTH functions below:
+   - **analyze_game_situation()**: Provide structured analysis of the current situation for narration
+   - **press_button_sequence()**: Execute your planned button actions with calculated durations
+
+**IMPORTANT**: You MUST call both functions for every response:
+- Call analyze_game_situation() with detailed analysis of what's happening
+- Call press_button_sequence() with your planned actions
