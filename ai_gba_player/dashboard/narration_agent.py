@@ -6,7 +6,9 @@ Uses configured LLM provider for dynamic, entertaining commentary and narration.
 
 import time
 import os
-from typing import Dict, Any, Optional, List
+import queue
+import threading
+from typing import Dict, Any, Optional, List, Callable
 from .models import Configuration
 from .llm_client import LLMClient
 
@@ -37,7 +39,7 @@ class NarrationResponse:
 
 
 class NarrationAgent:
-    """AI agent responsible for generating entertaining narration for streaming audiences"""
+    """Autonomous AI agent responsible for generating entertaining narration for streaming audiences"""
     
     def __init__(self):
         # LLM client for narration generation (supports multiple providers)
@@ -61,7 +63,19 @@ class NarrationAgent:
             "stuck": "encouraging and strategic"
         }
         
-        print("🎤 NarrationAgent initialized - ready for entertaining commentary")
+        # Autonomous operation capabilities
+        self.response_queue = queue.Queue(maxsize=20)  # Queue for receiving player responses
+        self.processing_thread = None
+        self.running = False
+        
+        # Communication interface
+        self.chat_message_sender = None  # Callback for sending messages to frontend
+        
+        # Performance tracking
+        self.narrations_generated = 0
+        self.processing_errors = 0
+        
+        print("🎤 NarrationAgent initialized - ready for autonomous entertaining commentary")
     
     def initialize_llm(self, config: Dict[str, Any]):
         """Initialize LLM client with same config as PlayerAgent"""
@@ -74,6 +88,135 @@ class NarrationAgent:
         except Exception as e:
             print(f"❌ NarrationAgent: Failed to initialize LLM client: {e}")
             return False
+    
+    def get_response_queue(self) -> queue.Queue:
+        """Get the queue for receiving player responses"""
+        return self.response_queue
+    
+    def set_chat_message_sender(self, message_sender: Callable[[str, str], None]):
+        """Set callback for sending messages directly to frontend chat"""
+        self.chat_message_sender = message_sender
+        print("💬 NarrationAgent connected to chat messaging")
+    
+    def start_background_processing(self):
+        """Start autonomous background narration processing"""
+        if self.running:
+            print("⚠️ NarrationAgent already running in background mode")
+            return
+        
+        self.running = True
+        self.processing_thread = threading.Thread(
+            target=self._background_processing_loop,
+            daemon=True,
+            name="NarrationAgent-Background"
+        )
+        self.processing_thread.start()
+        print("🚀 NarrationAgent started in background processing mode")
+    
+    def stop_background_processing(self):
+        """Stop autonomous background processing"""
+        if not self.running:
+            return
+        
+        self.running = False
+        
+        # Add poison pill to wake up processing thread
+        try:
+            self.response_queue.put_nowait(None)
+        except queue.Full:
+            pass
+        
+        if self.processing_thread and self.processing_thread.is_alive():
+            self.processing_thread.join(timeout=5.0)
+        
+        print("🛑 NarrationAgent background processing stopped")
+    
+    def _background_processing_loop(self):
+        """Main background processing loop - runs in separate thread"""
+        print("🎤 NarrationAgent background processing started")
+        
+        try:
+            while self.running:
+                try:
+                    # Wait for player response with timeout
+                    queue_item = self.response_queue.get(timeout=1.0)
+                    
+                    # Check for poison pill (shutdown signal)
+                    if queue_item is None:
+                        break
+                    
+                    # Unpack player response and game context
+                    player_response_dict, game_context = queue_item
+                    
+                    print(f"🎤 NarrationAgent: Processing narration request #{self.narrations_generated + 1}")
+                    
+                    # Generate narration
+                    narration_response = self.generate_narration(player_response_dict, game_context)
+                    
+                    # Send narration to frontend
+                    if narration_response.success:
+                        self._send_narration_message(narration_response)
+                        self.narrations_generated += 1
+                        print(f"✅ NarrationAgent: Sent narration #{self.narrations_generated}")
+                    else:
+                        self.processing_errors += 1
+                        error_msg = f"⚠️ NarrationAgent: Failed to generate narration - {narration_response.error}"
+                        print(error_msg)
+                        self._send_chat_message("system", error_msg)
+                    
+                    # Mark task as done
+                    self.response_queue.task_done()
+                    
+                except queue.Empty:
+                    continue  # Timeout, check if still running
+                
+                except Exception as e:
+                    self.processing_errors += 1
+                    error_msg = f"❌ NarrationAgent processing error: {str(e)}"
+                    print(error_msg)
+                    self._send_chat_message("system", error_msg)
+                    
+                    # Mark task as done even if it failed
+                    try:
+                        self.response_queue.task_done()
+                    except ValueError:
+                        pass  # No task to mark as done
+        
+        except Exception as e:
+            print(f"❌ NarrationAgent background loop error: {e}")
+        
+        finally:
+            print("🎤 NarrationAgent background processing ended")
+    
+    def _send_chat_message(self, message_type: str, content: str):
+        """Send message to frontend chat"""
+        if self.chat_message_sender:
+            try:
+                self.chat_message_sender(message_type, content)
+            except Exception as e:
+                print(f"❌ NarrationAgent: Error sending chat message: {e}")
+        else:
+            print(f"⚠️ NarrationAgent chat message (no sender): [{message_type}] {content}")
+    
+    def _send_narration_message(self, narration_response: NarrationResponse):
+        """Send narration message to frontend"""
+        if not narration_response.narration:
+            return
+        
+        # Create formatted narration message
+        excitement_emoji = {
+            "low": "😴",
+            "neutral": "🎮",
+            "high": "⚡",
+            "epic": "🔥"
+        }.get(narration_response.excitement_level, "🎮")
+        
+        message = f"{excitement_emoji} Narration: {narration_response.narration}"
+        
+        if narration_response.dialogue_reading:
+            message += f" | 🗣️ Dialogue: {narration_response.dialogue_reading}"
+        
+        self._send_chat_message("narration", message)
     
     def generate_narration(self, player_response: Dict[str, Any], 
                           game_context: Dict[str, Any]) -> NarrationResponse:

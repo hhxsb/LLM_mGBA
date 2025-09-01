@@ -989,31 +989,45 @@ class AIGameService(threading.Thread):
             # Add movement analysis to context
             movement_analysis = self._get_movement_analysis_text()
             
-            # Initialize AgentCoordinator if needed
-            self.agent_coordinator.initialize_agents(config)
-            
-            # Set memory system integration
-            if self.memory_system:
-                self.agent_coordinator.set_memory_system(self.memory_system)
-            
-            # Process game cycle with parallel agents (main optimization!)
-            player_response, initial_narration_response = self.agent_coordinator.process_game_cycle(
-                screenshot_path=current_path,
-                game_state=game_state,
-                previous_screenshot=previous_path if previous_path != current_path else None,
-                enhanced_context=recent_actions_text + "\n" + movement_analysis
-            )
-            
-            # Try to get narration response immediately (non-blocking)
-            narration_response = self.agent_coordinator.get_pending_narration()
-            if not narration_response:
-                # If no narration ready yet, create a placeholder
-                from .narration_agent import NarrationResponse
-                narration_response = NarrationResponse(
-                    success=False,
-                    narration="Processing narration in background...",
-                    error="Still processing"
+            # Initialize and start autonomous agents if needed
+            if not self.agent_coordinator.agents_initialized:
+                self.agent_coordinator.initialize_agents(config)
+                
+                # Set memory system integration
+                if self.memory_system:
+                    self.agent_coordinator.set_memory_system(self.memory_system)
+                
+                # Set communication interfaces for agents
+                self.agent_coordinator.set_communication_interfaces(
+                    chat_message_sender=self._send_chat_message,
+                    screenshot_requester=self._request_screenshot_from_mgba,
+                    button_sender=self._send_button_sequence
                 )
+                
+                # Connect agent communication
+                self.agent_coordinator.connect_agent_communication()
+                
+                # Start agents
+                self.agent_coordinator.start_agents()
+            
+            # Check if autonomous gameplay is already running
+            if not self.agent_coordinator.player_agent.autonomous_mode:
+                # Start autonomous gameplay with current screenshot and game state
+                success = self.agent_coordinator.start_autonomous_gameplay(current_path, game_state)
+                if success:
+                    print("🎮 Autonomous gameplay started - agents now in control")
+                    return  # Agents will handle everything from here
+                else:
+                    print("❌ Failed to start autonomous gameplay - falling back to manual mode")
+            else:
+                # Agents are already running autonomously
+                print("🎮 Autonomous gameplay already active")
+                return
+            
+            # Fallback: If autonomous mode failed, continue with manual processing
+            print("⚠️ Using fallback manual processing")
+            self._send_chat_message("system", "⚠️ Autonomous mode failed - using manual fallback")
+            return  # Exit early - manual fallback not implemented in this refactor
             
             # Convert narration to speech (non-blocking background playback)
             tts_status = "Silent"
@@ -1263,6 +1277,21 @@ class AIGameService(threading.Thread):
         print("❌ Failed to request screenshot after all retries")
         self._send_chat_message("system", "❌ Failed to request screenshot - connection may be lost")
         return False
+    
+    def _request_screenshot_from_mgba(self) -> str:
+        """Request screenshot from mGBA and return the path (for PlayerAgent)"""
+        if self._request_screenshot():
+            # Wait for screenshot to be available
+            max_wait_time = 5.0
+            start_time = time.time()
+            while time.time() - start_time < max_wait_time:
+                if self.next_screenshot_path and os.path.exists(self.next_screenshot_path):
+                    return self.next_screenshot_path
+                time.sleep(0.1)
+            
+            print("⚠️ Screenshot requested but file not found")
+        
+        return ""  # Return empty string on failure
     
     def _send_button_sequence(self, actions: list, durations: list = None):
         """Send button sequence to mGBA with optional custom durations"""
@@ -1672,33 +1701,10 @@ class AIGameService(threading.Thread):
         self._request_screenshot()
     
     def _wait_and_collect_narration(self, wait_time: float):
-        """Wait for specified time while collecting background narration when available"""
-        start_time = time.time()
-        check_interval = 0.5  # Check for narration every 0.5 seconds
-        
-        while time.time() - start_time < wait_time:
-            # Check for available narration
-            narration_response = self.agent_coordinator.get_pending_narration()
-            if narration_response and narration_response.success:
-                print("🎤 Background narration ready!")
-                
-                # Convert narration to speech (non-blocking)
-                tts_status = "Silent"
-                if narration_response.narration:
-                    tts_result = self.tts_service.speak_narration(narration_response.to_dict(), blocking=False)
-                    tts_status = "Playing" if tts_result else "Failed"
-                
-                # Send narration message to chat
-                self._send_narration_message(narration_response.to_dict(), tts_status)
-                
-                # Once we get narration, we can continue with the remaining wait time
-                break
-            
-            # Sleep for check interval or remaining time (whichever is shorter)
-            remaining_time = wait_time - (time.time() - start_time)
-            sleep_time = min(check_interval, remaining_time)
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+        """Wait for specified time - narration now handled autonomously by NarrationAgent"""
+        # In the new autonomous architecture, narration is handled independently
+        # by the NarrationAgent, so we just need to wait
+        time.sleep(wait_time)
     
     
     def _process_memory_updates(self, ai_response: Dict[str, Any], game_state: Dict[str, Any], actions_taken: list):
