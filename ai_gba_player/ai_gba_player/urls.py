@@ -20,6 +20,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.decorators.csrf import csrf_exempt
 from . import simple_views
+from . import graphiti_views
 
 urlpatterns = [
     # Django admin
@@ -33,12 +34,17 @@ urlpatterns = [
     path('api/restart-service/', csrf_exempt(simple_views.restart_service), name='restart_service'),
     path('api/stop-service/', csrf_exempt(simple_views.stop_service), name='stop_service'),
     path('api/reset-llm-session/', csrf_exempt(simple_views.reset_llm_session), name='reset_llm_session'),
-    path('api/notepad-content/', csrf_exempt(simple_views.get_notepad_content), name='get_notepad_content'),
-    path('api/clear-notepad/', csrf_exempt(simple_views.clear_notepad), name='clear_notepad'),
     path('api/launch-mgba-config/', csrf_exempt(simple_views.launch_mgba_config), name='launch_mgba_config'),
     path('api/save-rom-config/', csrf_exempt(simple_views.save_rom_config), name='save_rom_config'),
     path('api/save-ai-config/', csrf_exempt(simple_views.save_ai_config), name='save_ai_config'),
     path('api/chat-messages/', csrf_exempt(simple_views.get_chat_messages), name='get_chat_messages'),
+    
+    # Graphiti Memory System API endpoints
+    path('api/graphiti/objectives/', csrf_exempt(graphiti_views.get_objectives), name='get_objectives'),
+    path('api/graphiti/objectives/add/', csrf_exempt(graphiti_views.add_objective), name='add_objective'),
+    path('api/graphiti/objectives/<str:objective_id>/complete/', csrf_exempt(graphiti_views.complete_objective), name='complete_objective'),
+    path('api/graphiti/strategies/', csrf_exempt(graphiti_views.get_strategies), name='get_strategies'),
+    path('api/graphiti/stats/', csrf_exempt(graphiti_views.get_memory_stats), name='get_memory_stats'),
     
     # Disabled: Legacy API app - superseded by simple_views
     # path('api/', include('api.urls')),

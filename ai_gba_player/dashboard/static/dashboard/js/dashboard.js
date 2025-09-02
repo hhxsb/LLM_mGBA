@@ -6,12 +6,17 @@ let autoScroll = true;
 let lastMessageCount = 0;
 let lastProcessedMessageId = 0;  // Track last processed message ID
 let pollingInterval = null;
-let lastNotepadUpdate = null;  // Track last notepad update time
-let lastEntryCount = 0;  // Track entry count for change detection
 
 // Start polling for messages when page loads
 document.addEventListener('DOMContentLoaded', function() {
     startMessagePolling();
+    
+    // Add Enter key support for objective input
+    document.addEventListener('keypress', function(e) {
+        if (e.target.id === 'objective-input' && e.key === 'Enter') {
+            addObjective();
+        }
+    });
 });
 
 function startMessagePolling() {
@@ -21,11 +26,11 @@ function startMessagePolling() {
     
     pollingInterval = setInterval(() => {
         pollForMessages();
-        pollForNotepadUpdates();
+        pollForMemoryUpdates();
     }, 2000); // Poll every 2 seconds
     
     pollForMessages(); // Initial poll
-    pollForNotepadUpdates(); // Initial notepad poll
+    pollForMemoryUpdates(); // Initial memory poll
 }
 
 function pollForMessages() {
@@ -69,61 +74,6 @@ function pollForMessages() {
         });
 }
 
-function pollForNotepadUpdates() {
-    fetch('/api/notepad-content/')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                updateNotepadDisplay(data);
-            }
-        })
-        .catch(error => {
-            console.error('Error polling notepad:', error);
-            document.getElementById('notepad-status').textContent = 'Error loading';
-        });
-}
-
-function updateNotepadDisplay(data) {
-    const statusEl = document.getElementById('notepad-status');
-    const countEl = document.getElementById('entry-count');
-    const contentEl = document.getElementById('notepad-content');
-    
-    // Update status and count
-    statusEl.textContent = `Last: ${data.last_updated}`;
-    countEl.textContent = `${data.entry_count} entries`;
-    
-    // Check if there are new entries
-    const hasNewEntries = data.entry_count > lastEntryCount;
-    lastEntryCount = data.entry_count;
-    
-    // Display recent entries
-    if (data.recent_entries && data.recent_entries.length > 0) {
-        let entriesHtml = '';
-        data.recent_entries.forEach((entry, index) => {
-            const lines = entry.split('\\n');
-            const header = lines[0]; // ## Update timestamp
-            const content = lines.slice(1).join('\\n').trim();
-            
-            const isNew = hasNewEntries && index === data.recent_entries.length - 1;
-            const newClass = isNew ? ' new' : '';
-            
-            entriesHtml += `
-                <div class="notepad-entry${newClass}">
-                    <div class="notepad-entry-header">${header}</div>
-                    <div class="notepad-entry-content">${content}</div>
-                </div>
-            `;
-        });
-        contentEl.innerHTML = entriesHtml;
-        
-        // Auto-scroll to bottom if new entry
-        if (hasNewEntries) {
-            contentEl.scrollTop = contentEl.scrollHeight;
-        }
-    } else {
-        contentEl.innerHTML = '<div class="notepad-empty">No memory updates yet...</div>';
-    }
-}
 
 function displayMessage(message) {
     if (message.type === 'system') {
@@ -508,19 +458,147 @@ function resetLLMSession() {
     .catch(error => addSystemMessage('Error resetting LLM session: ' + error.message));
 }
 
-function clearNotepad() {
-    fetch('/api/clear-notepad/', {
+// ===== GRAPHITI MEMORY SYSTEM FUNCTIONS =====
+
+function pollForMemoryUpdates() {
+    // Poll for objectives, strategies, and stats
+    Promise.all([
+        fetch('/api/graphiti/objectives/').then(r => r.json()),
+        fetch('/api/graphiti/strategies/').then(r => r.json()),
+        fetch('/api/graphiti/stats/').then(r => r.json())
+    ]).then(([objectives, strategies, stats]) => {
+        updateMemoryDisplay(objectives, strategies, stats);
+    }).catch(error => {
+        console.error('Error polling memory updates:', error);
+        document.getElementById('memory-status').textContent = 'Error loading';
+    });
+}
+
+function updateMemoryDisplay(objectivesData, strategiesData, statsData) {
+    // Update status and stats
+    const statusEl = document.getElementById('memory-status');
+    const statsEl = document.getElementById('memory-stats');
+    
+    if (statsData.success) {
+        const stats = statsData.stats;
+        statusEl.textContent = `${stats.memory_system_type} Memory Active`;
+        statsEl.textContent = `${stats.active_objectives} objectives, ${stats.learned_strategies} strategies`;
+    } else {
+        statusEl.textContent = 'Memory system unavailable';
+        statsEl.textContent = '0 objectives, 0 strategies';
+    }
+    
+    // Update objectives list
+    updateObjectivesList(objectivesData);
+    
+    // Update strategies list
+    updateStrategiesList(strategiesData);
+}
+
+function updateObjectivesList(data) {
+    const objectivesEl = document.getElementById('objectives-list');
+    
+    if (data.success && data.objectives && data.objectives.length > 0) {
+        let objectivesHtml = '';
+        data.objectives.forEach(obj => {
+            const priorityEmoji = obj.priority >= 8 ? '🔥' : obj.priority >= 6 ? '⭐' : '📋';
+            const completedClass = obj.completed ? ' completed' : '';
+            const completedText = obj.completed ? ' ✅' : '';
+            
+            objectivesHtml += `
+                <div class="objective-item${completedClass}">
+                    <div class="objective-header">
+                        <span class="objective-priority">${priorityEmoji}</span>
+                        <span class="objective-description">${obj.description}${completedText}</span>
+                        ${!obj.completed ? `<button class="btn btn-xs" onclick="completeObjective('${obj.id}')">✅</button>` : ''}
+                    </div>
+                    <div class="objective-meta">
+                        <span class="objective-category">${obj.category}</span>
+                        <span class="objective-location">${obj.location_discovered || 'Unknown'}</span>
+                    </div>
+                </div>
+            `;
+        });
+        objectivesEl.innerHTML = objectivesHtml;
+    } else {
+        objectivesEl.innerHTML = '<div class="memory-empty">No objectives yet...</div>';
+    }
+}
+
+function updateStrategiesList(data) {
+    const strategiesEl = document.getElementById('strategies-list');
+    
+    if (data.success && data.strategies && data.strategies.length > 0) {
+        let strategiesHtml = '';
+        data.strategies.slice(0, 10).forEach(strategy => { // Show top 10
+            const successColor = strategy.success_rate >= 80 ? '#22c55e' : strategy.success_rate >= 60 ? '#f59e0b' : '#ef4444';
+            
+            strategiesHtml += `
+                <div class="strategy-item">
+                    <div class="strategy-header">
+                        <span class="strategy-situation">${strategy.situation}</span>
+                        <span class="strategy-success" style="color: ${successColor};">${strategy.success_rate}%</span>
+                    </div>
+                    <div class="strategy-buttons">[${strategy.buttons.join(' → ')}]</div>
+                    <div class="strategy-meta">Used ${strategy.times_used} times</div>
+                </div>
+            `;
+        });
+        strategiesEl.innerHTML = strategiesHtml;
+    } else {
+        strategiesEl.innerHTML = '<div class="memory-empty">No strategies learned yet...</div>';
+    }
+}
+
+function addObjective() {
+    const input = document.getElementById('objective-input');
+    const priority = document.getElementById('objective-priority');
+    
+    const description = input.value.trim();
+    if (!description) {
+        addSystemMessage('Please enter an objective description');
+        return;
+    }
+    
+    fetch('/api/graphiti/objectives/add/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            description: description,
+            priority: parseInt(priority.value),
+            category: 'manual'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            addSystemMessage(data.message);
+            input.value = ''; // Clear input
+            pollForMemoryUpdates(); // Refresh display
+        } else {
+            addSystemMessage('Error: ' + data.message);
+        }
+    })
+    .catch(error => addSystemMessage('Error adding objective: ' + error.message));
+}
+
+function completeObjective(objectiveId) {
+    fetch(`/api/graphiti/objectives/${objectiveId}/complete/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     })
     .then(response => response.json())
     .then(data => {
-        addSystemMessage(data.message);
-        // Immediately refresh notepad display
-        pollForNotepadUpdates();
+        if (data.success) {
+            addSystemMessage(data.message);
+            pollForMemoryUpdates(); // Refresh display
+        } else {
+            addSystemMessage('Error: ' + data.message);
+        }
     })
-    .catch(error => addSystemMessage('Error clearing notepad: ' + error.message));
+    .catch(error => addSystemMessage('Error completing objective: ' + error.message));
 }
+
 
 // ===== NARRATION SYSTEM FUNCTIONS =====
 

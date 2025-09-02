@@ -70,6 +70,22 @@ class PlayerAgent:
         # Memory system integration
         self.memory_system = None
         
+        # Session-aware context memory (similar to NarrationAgent but focused on decisions)
+        self.session_context = {
+            "recent_decisions": [],  # Last 5 decisions with outcomes
+            "current_objectives": [],  # Session-specific objectives
+            "encountered_npcs": [],  # NPCs met this session
+            "discovered_locations": [],  # New locations found
+            "failed_attempts": {},  # Track what didn't work (location -> failed_actions)
+            "successful_patterns": {},  # Track what worked (situation -> successful_actions)
+            "token_usage": {  # Track token optimization
+                "total_estimated_tokens": 0,
+                "context_lengths": [],
+                "optimization_savings": 0
+            }
+        }
+        self.max_session_history = 5
+        
         # Autonomous operation capabilities
         self.autonomous_mode = False
         self.autonomous_thread = None
@@ -186,14 +202,23 @@ class PlayerAgent:
                         current_screenshot, current_game_state, previous_screenshot
                     )
                     
+                    # Update session context with decision outcome
+                    self._update_session_context(player_response, current_game_state)
+                    
                     # Send AI response to chat
                     self._send_ai_response_message(player_response.to_dict())
                     
-                    # If successful, send to narration queue
+                    # If successful, send to narration queue with enhanced context
                     if player_response.success and self.narration_queue:
                         try:
-                            self.narration_queue.put_nowait((player_response.to_dict(), current_game_state.copy()))
-                            print("📤 PlayerAgent: Response sent to narration queue")
+                            # Send enhanced data including session context
+                            narration_data = {
+                                "player_response": player_response.to_dict(),
+                                "game_state": current_game_state.copy(),
+                                "session_context": self.get_session_context_for_narration()
+                            }
+                            self.narration_queue.put_nowait(narration_data)
+                            print("📤 PlayerAgent: Response sent to narration queue with session context")
                         except queue.Full:
                             print("⚠️ PlayerAgent: Narration queue full - dropping narration request")
                     
@@ -227,7 +252,10 @@ class PlayerAgent:
                     time.sleep(cooldown)
                     
                 except Exception as cycle_error:
+                    import traceback
+                    error_details = traceback.format_exc()
                     print(f"❌ PlayerAgent cycle error: {cycle_error}")
+                    print(f"📋 Full error traceback: {error_details}")
                     self._send_chat_message("system", f"⚠️ PlayerAgent cycle error: {str(cycle_error)}")
                     
                     # Wait before next attempt
@@ -388,6 +416,10 @@ class PlayerAgent:
         current_situation = ai_response.get("current_situation", self._infer_situation_from_state(game_state))
         emotional_context = ai_response.get("emotional_context", self._infer_emotional_context(text))
         
+        # Process objective discovery if present
+        if "objective_discovery" in ai_response and self.memory_system:
+            self._process_objective_discovery(ai_response["objective_discovery"], game_state)
+        
         return PlayerResponse(
             success=ai_response.get("success", True),
             actions=actions,
@@ -533,7 +565,24 @@ class PlayerAgent:
         self.last_successful_game_state = None
         self.current_retry_count = 0
         self.consecutive_errors = 0
-        print("🔄 PlayerAgent session reset")
+        
+        # Reset session context
+        self.session_context = {
+            "recent_decisions": [],
+            "current_objectives": [],
+            "encountered_npcs": [],
+            "discovered_locations": [],
+            "failed_attempts": {},
+            "successful_patterns": {}
+        }
+        
+        # Reset autonomous state
+        self.decision_count = 0
+        self.cycle_times = []
+        self.screenshot_map = {}
+        self.screenshot_counter = 0
+        
+        print("🔄 PlayerAgent session reset with enhanced context")
     
     def set_memory_system(self, memory_system):
         """Set memory system for integration"""
@@ -544,11 +593,24 @@ class PlayerAgent:
     
     def _make_autonomous_decision(self, screenshot_path: str, game_state: Dict[str, Any], 
                                  previous_screenshot: Optional[str] = None) -> PlayerResponse:
-        """Make AI decision for autonomous gameplay"""
-        # Get recent actions and context for enhanced decision making
+        """Make AI decision for autonomous gameplay with token-optimized context"""
+        # Get compact session context for immediate decision support
         enhanced_context = self._get_enhanced_context(game_state)
         
-        # Use existing analyze_and_decide logic
+        # Add optimized memory context (token-efficient)
+        optimized_memory = self._get_optimized_memory_context(game_state, max_tokens=100)
+        if optimized_memory:
+            enhanced_context += f"\n\n## 🧠 Memory:\n{optimized_memory}"
+        
+        # Add compact situational context for immediate needs
+        situational_context = self._get_situational_memory_context(game_state)
+        if situational_context:
+            enhanced_context += f"\n\n## 🎯 Current:\n{situational_context}"
+        
+        # Track token usage for optimization insights
+        self._track_token_usage(enhanced_context)
+        
+        # Use existing analyze_and_decide logic with optimized context
         return self.analyze_and_decide(
             screenshot_path=screenshot_path,
             game_state=game_state,
@@ -556,23 +618,183 @@ class PlayerAgent:
             enhanced_context=enhanced_context
         )
     
+    def _get_situational_memory_context(self, game_state: Dict[str, Any]) -> str:
+        """Get memory context filtered by current situation for more relevant decisions"""
+        current_situation = self._classify_current_situation(game_state)
+        current_location = self._get_current_location_key(game_state)
+        
+        context_lines = []
+        
+        # Critical failures first (most important)
+        if current_location in self.session_context["failed_attempts"]:
+            failed_actions = self.session_context["failed_attempts"][current_location]
+            unique_failures = list(dict.fromkeys(failed_actions[-3:]))  # Reduced from 5 to 3
+            if unique_failures:
+                context_lines.append(f"❌ Avoid: {', '.join(unique_failures)}")
+        
+        # High-value successful patterns (reduced token usage)
+        if current_situation in self.session_context["successful_patterns"]:
+            successful_actions = self.session_context["successful_patterns"][current_situation]
+            from collections import Counter
+            action_counts = Counter(successful_actions)
+            top_actions = [action for action, _ in action_counts.most_common(2)]  # Reduced from 3 to 2
+            if top_actions:
+                context_lines.append(f"✅ {', '.join(top_actions)}")
+        
+        # Recent dialogue opportunities (compact)
+        current_map = game_state.get("map_id", 0)
+        map_npcs = [npc for npc in self.session_context["encountered_npcs"] 
+                   if f"map_{current_map}_" in npc.get("location", "")]
+        if map_npcs:
+            latest_dialogue = map_npcs[-1].get("dialogue", "")[:30]  # Truncate to 30 chars
+            context_lines.append(f"💬 {latest_dialogue}...")
+        
+        # Critical performance warnings only
+        if self.consecutive_errors >= 2:
+            context_lines.append("⚠️ Try simpler actions")
+        elif len(self.session_context["recent_decisions"]) >= 3:
+            recent_actions = [d.get("actions", []) for d in self.session_context["recent_decisions"][-3:]]
+            if len(set(str(actions) for actions in recent_actions)) == 1:
+                context_lines.append("🔄 Vary actions")
+        
+        return "\n".join(context_lines)
+    
+    def _get_optimized_memory_context(self, game_state: Dict[str, Any], max_tokens: int = 150) -> str:
+        """Get memory context optimized for token usage with intelligent prioritization"""
+        if not self.memory_system:
+            return ""
+        
+        try:
+            # Get full memory context from Graphiti
+            recent_events = self.session_context.get("recent_decisions", [])
+            recent_events_safe = recent_events[-3:] if recent_events else []
+            
+            full_context = self.memory_system.get_context(
+                current_situation=self._classify_current_situation(game_state),
+                location=self._get_current_location_key(game_state),
+                recent_events=recent_events_safe
+            )
+            
+            # Priority-based context extraction
+            priority_sections = []
+            
+            # P1: Current objectives (critical for decision making)
+            if full_context and "objectives" in full_context.lower():
+                obj_lines = [line for line in full_context.split('\n') if line and 'objective' in line.lower()]
+                if obj_lines:
+                    priority_sections.append(f"🎯 {obj_lines[0][:50]}...")
+            
+            # P2: Learned strategies for current situation (high value)
+            if full_context and ("strategies" in full_context.lower() or "learned" in full_context.lower()):
+                strategy_lines = [line for line in full_context.split('\n') if line and any(word in line.lower() for word in ['learned', 'strategy', 'works'])]
+                if strategy_lines:
+                    priority_sections.append(f"💡 {strategy_lines[0][:40]}...")
+            
+            # P3: Critical warnings (safety)
+            if full_context and ("avoid" in full_context.lower() or "failed" in full_context.lower()):
+                warning_lines = [line for line in full_context.split('\n') if line and any(word in line.lower() for word in ['avoid', 'failed', 'stuck'])]
+                if warning_lines:
+                    priority_sections.append(f"⚠️ {warning_lines[0][:40]}...")
+            
+            # Combine and trim to token limit
+            optimized_context = "\n".join(priority_sections)
+            
+            # Rough token estimation (4 chars per token)
+            if len(optimized_context) > max_tokens * 4:
+                optimized_context = optimized_context[:max_tokens * 4] + "..."
+            
+            return optimized_context
+            
+        except Exception as e:
+            print(f"⚠️ PlayerAgent: Memory context optimization failed: {e}")
+            return ""
+    
     def _get_enhanced_context(self, game_state: Dict[str, Any]) -> str:
-        """Build enhanced context for AI decision making"""
+        """Build enhanced context for AI decision making with intelligent prioritization"""
         context_parts = []
         
-        # Add decision count context
-        context_parts.append(f"Decision #{self.decision_count}")
-        
-        # Add performance context
-        if self.cycle_times:
-            avg_time = sum(self.cycle_times) / len(self.cycle_times)
-            context_parts.append(f"Average cycle time: {avg_time:.2f}s")
-        
-        # Add error tracking context
+        # Critical information first (always include)
         if self.consecutive_errors > 0:
-            context_parts.append(f"Recent errors: {self.consecutive_errors}")
+            context_parts.append(f"⚠️ Errors: {self.consecutive_errors}")
+        
+        # Location-specific failures (high priority when relevant)
+        current_location = self._get_current_location_key(game_state)
+        if current_location in self.session_context["failed_attempts"]:
+            failed_actions = self.session_context["failed_attempts"][current_location]
+            context_parts.append(f"❌ Avoid: {', '.join(failed_actions[-2:])}")
+        
+        # Successful patterns for current situation (high value)
+        current_situation = self._classify_current_situation(game_state)
+        if current_situation in self.session_context["successful_patterns"]:
+            successful_actions = self.session_context["successful_patterns"][current_situation]
+            context_parts.append(f"✅ Try: {', '.join(successful_actions[-2:])}")
+        
+        # Recent outcomes (compact format)
+        if self.session_context["recent_decisions"]:
+            recent = self.session_context["recent_decisions"][-2:]  # Only last 2
+            outcomes = []
+            for decision in recent:
+                outcome = "✅" if decision.get("success", True) else "❌"
+                actions = decision.get("actions", [])
+                action = actions[0] if actions else ""  # Safe access to first action
+                outcomes.append(f"{outcome}{action}")
+            context_parts.append(f"Recent: {' '.join(outcomes)}")
+        
+        # Performance metrics (only if significant)
+        if self.cycle_times and len(self.cycle_times) > 5:
+            avg_time = sum(self.cycle_times[-5:]) / 5  # Last 5 cycles only
+            if avg_time > 3.0:  # Only show if slow
+                context_parts.append(f"⏱️ {avg_time:.1f}s")
+        
+        # Session progress (compact)
+        context_parts.append(f"#{self.decision_count}")
         
         return " | ".join(context_parts)
+    
+    def _track_token_usage(self, context: str):
+        """Track token usage for optimization insights"""
+        # Estimate tokens (rough approximation: 4 chars per token)
+        estimated_tokens = len(context) // 4
+        
+        # Update token usage tracking
+        token_data = self.session_context["token_usage"]
+        token_data["total_estimated_tokens"] += estimated_tokens
+        token_data["context_lengths"].append(estimated_tokens)
+        
+        # Keep only last 10 context lengths for trend analysis
+        if len(token_data["context_lengths"]) > 10:
+            token_data["context_lengths"] = token_data["context_lengths"][-10:]
+        
+        # Calculate optimization savings compared to unoptimized context
+        if len(token_data["context_lengths"]) > 1:
+            avg_optimized = sum(token_data["context_lengths"]) / len(token_data["context_lengths"])
+            baseline_estimate = 200  # Estimated tokens for unoptimized context
+            if avg_optimized < baseline_estimate:
+                token_data["optimization_savings"] = baseline_estimate - avg_optimized
+        
+        # Log token usage periodically
+        if self.decision_count % 10 == 0 and token_data["context_lengths"]:
+            avg_tokens = sum(token_data["context_lengths"]) / len(token_data["context_lengths"])
+            savings = token_data["optimization_savings"]
+            print(f"🧮 TokenOptimization: Avg {avg_tokens:.0f} tokens/decision, saving ~{savings:.0f} tokens vs baseline")
+    
+    def get_token_optimization_stats(self) -> Dict[str, Any]:
+        """Get token usage optimization statistics"""
+        token_data = self.session_context["token_usage"]
+        if not token_data["context_lengths"]:
+            return {"status": "No data available"}
+        
+        avg_tokens = sum(token_data["context_lengths"]) / len(token_data["context_lengths"])
+        total_decisions = len(token_data["context_lengths"])
+        
+        return {
+            "average_tokens_per_decision": round(avg_tokens, 1),
+            "total_decisions": total_decisions,
+            "total_estimated_tokens": token_data["total_estimated_tokens"],
+            "optimization_savings_per_decision": round(token_data["optimization_savings"], 1),
+            "total_savings": round(token_data["optimization_savings"] * total_decisions, 1),
+            "efficiency_improvement": f"{(token_data['optimization_savings'] / 200) * 100:.1f}%" if token_data["optimization_savings"] > 0 else "0%"
+        }
     
     def _execute_actions(self, actions: List[str], durations: Optional[List[int]] = None):
         """Execute button actions using the configured button sender"""
@@ -631,7 +853,7 @@ class PlayerAgent:
         self.screenshot_map[filename] = self.screenshot_counter
         
         # Keep only recent screenshots for comparison
-        if len(self.screenshot_map) > 10:
+        if len(self.screenshot_map) > 10 and self.screenshot_map:
             # Remove oldest screenshot
             oldest_file = min(self.screenshot_map.keys(), key=lambda k: self.screenshot_map[k])
             del self.screenshot_map[oldest_file]
@@ -697,3 +919,136 @@ class PlayerAgent:
         
         message = f"{success_indicator} AI Decision: {actions_text} | {response_dict.get('text', 'No reasoning')}"
         self._send_chat_message("ai_response", message)
+    
+    # === Session Context Management ===
+    
+    def _update_session_context(self, player_response: PlayerResponse, game_state: Dict[str, Any]):
+        """Update session context with decision outcomes for better learning"""
+        # Record this decision
+        decision_record = {
+            "timestamp": time.time(),
+            "actions": player_response.actions.copy(),
+            "success": player_response.success,
+            "situation": player_response.current_situation,
+            "location": self._get_current_location_key(game_state),
+            "dialogue": player_response.detected_dialogue,
+            "reasoning": player_response.action_reasoning
+        }
+        
+        self.session_context["recent_decisions"].append(decision_record)
+        
+        
+        # Keep only recent decisions
+        if len(self.session_context["recent_decisions"]) > self.max_session_history:
+            self.session_context["recent_decisions"] = self.session_context["recent_decisions"][-self.max_session_history:]
+        
+        # Track failed attempts by location
+        if not player_response.success:
+            location_key = self._get_current_location_key(game_state)
+            if location_key not in self.session_context["failed_attempts"]:
+                self.session_context["failed_attempts"][location_key] = []
+            self.session_context["failed_attempts"][location_key].extend(player_response.actions)
+            
+            # Keep only recent failures per location
+            if len(self.session_context["failed_attempts"][location_key]) > 10:
+                self.session_context["failed_attempts"][location_key] = self.session_context["failed_attempts"][location_key][-10:]
+        
+        # Track successful patterns by situation
+        if player_response.success and player_response.actions:
+            situation_key = self._classify_current_situation(game_state)
+            if situation_key not in self.session_context["successful_patterns"]:
+                self.session_context["successful_patterns"][situation_key] = []
+            self.session_context["successful_patterns"][situation_key].extend(player_response.actions)
+            
+            # Keep only recent successes per situation
+            if len(self.session_context["successful_patterns"][situation_key]) > 6:
+                self.session_context["successful_patterns"][situation_key] = self.session_context["successful_patterns"][situation_key][-6:]
+        
+        # Track dialogue encounters
+        if player_response.detected_dialogue:
+            npc_record = {
+                "timestamp": time.time(),
+                "location": self._get_current_location_key(game_state),
+                "dialogue": player_response.detected_dialogue
+            }
+            self.session_context["encountered_npcs"].append(npc_record)
+            
+            # Keep only recent NPCs
+            if len(self.session_context["encountered_npcs"]) > 5:
+                self.session_context["encountered_npcs"] = self.session_context["encountered_npcs"][-5:]
+    
+    def _get_current_location_key(self, game_state: Dict[str, Any]) -> str:
+        """Generate location key for session tracking"""
+        position = game_state.get("position", {})
+        map_id = game_state.get("map_id", 0)
+        return f"map_{map_id}_x{position.get('x', 0)}_y{position.get('y', 0)}"
+    
+    def _classify_current_situation(self, game_state: Dict[str, Any]) -> str:
+        """Classify current game situation for pattern matching"""
+        # Basic situation classification - can be enhanced with more game-specific logic
+        map_id = game_state.get("map_id", 0)
+        
+        # Common situation patterns
+        if map_id == 0:
+            return "overworld_exploration"
+        elif 1 <= map_id <= 50:  # Indoor locations
+            return "indoor_navigation"  
+        elif 51 <= map_id <= 100:  # Battle areas
+            return "battle_situation"
+        else:
+            return "special_area"
+    
+    def get_session_context_for_narration(self) -> Dict[str, Any]:
+        """Get session context data to share with NarrationAgent"""
+        return {
+            "recent_decisions": self.session_context["recent_decisions"][-3:],  # Last 3 decisions
+            "encountered_npcs": self.session_context["encountered_npcs"][-3:],  # Last 3 NPCs
+            "current_objectives": self.session_context["current_objectives"],
+            "performance_stats": {
+                "decision_count": self.decision_count,
+                "consecutive_errors": self.consecutive_errors,
+                "success_rate": self._calculate_session_success_rate()
+            }
+        }
+    
+    def _calculate_session_success_rate(self) -> float:
+        """Calculate success rate for current session"""
+        if not self.session_context["recent_decisions"]:
+            return 1.0
+        
+        successful_decisions = sum(1 for d in self.session_context["recent_decisions"] if d.get("success", True))
+        return successful_decisions / len(self.session_context["recent_decisions"])
+    
+    def _process_objective_discovery(self, objective_data: Dict[str, Any], game_state: Dict[str, Any]):
+        """Process objective discovery from LLM function call"""
+        if not self.memory_system or not objective_data:
+            return
+        
+        try:
+            description = objective_data.get("description", "").strip()
+            priority = objective_data.get("priority", 5)
+            category = objective_data.get("category", "general")
+            
+            if not description:
+                print("⚠️ PlayerAgent: Empty objective description received")
+                return
+            
+            current_location = self._get_current_location_key(game_state)
+            
+            objective_id = self.memory_system.discover_objective(
+                description=description,
+                location=current_location,
+                category=category,
+                priority=priority
+            )
+            
+            if objective_id:
+                print(f"🎯 PlayerAgent: Discovered objective via function call: '{description}' (Priority: {priority}, Category: {category})")
+                # Also send to chat for user visibility
+                self._send_chat_message("system", f"🎯 New objective discovered: {description}")
+            else:
+                print(f"⚠️ PlayerAgent: Failed to create objective: {description}")
+        
+        except Exception as e:
+            print(f"⚠️ PlayerAgent: Error processing objective discovery: {e}")
+    

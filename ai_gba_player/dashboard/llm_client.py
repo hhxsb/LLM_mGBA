@@ -217,7 +217,7 @@ class LLMClient:
             elif self.provider == 'openai':
                 return self._call_openai_api(screenshot_path, context)
             else:
-                return self._fallback_response(context)
+                return self._fallback_response()
                 
         except Exception as e:
             print(f"❌ LLM analysis error: {e}")
@@ -269,7 +269,7 @@ class LLMClient:
             elif self.provider == 'openai':
                 return self._call_openai_api_with_comparison(previous_screenshot, current_screenshot, context)
             else:
-                return self._fallback_response(context, "Unsupported provider for comparison")
+                return self._fallback_response( "Unsupported provider for comparison")
                 
         except Exception as e:
             print(f"❌ LLM comparison analysis error: {e}")
@@ -312,7 +312,6 @@ Map ID: {map_id}
         direction_guidance = self._get_direction_guidance_text(direction, x, y, map_id)
         
         # Load notepad content with caching for performance
-        notepad_content = self._read_notepad()
         
         # Get memory context from Graphiti
         current_map = self._get_map_name(map_id)
@@ -324,7 +323,6 @@ Map ID: {map_id}
                 spatial_context=spatial_context,
                 recent_actions=recent_actions_text,
                 direction_guidance=direction_guidance,
-                notepad_content=notepad_content,
                 memory_context=memory_context,
                 before_after_analysis="**COMPARE THE TWO SCREENSHOTS**: Analyze what changed between the previous screenshot (before your last actions) and the current screenshot (after your actions). Did your actions have the intended effect?"
             )
@@ -332,13 +330,13 @@ Map ID: {map_id}
         except KeyError as e:
             print(f"❌ Template variable error: {e}")
             # Return minimal context if template has issues
-            return f"Compare these two screenshots and choose your next action.\n\nPosition: ({x}, {y}) facing {direction}\n{recent_actions}"
+            return f"Compare these two screenshots and choose your next action.\n\nPosition: ({x}, {y}) facing {direction}"
     
     def _call_google_api_with_comparison(self, previous_screenshot: str, current_screenshot: str, context: str) -> Dict[str, Any]:
         """Call Google Gemini API with two screenshots for comparison"""
         try:
             if not self.google_client:
-                return self._fallback_response(context, "Google client not initialized")
+                return self._fallback_response( "Google client not initialized")
             
             # Load and enhance both images
             previous_image = self._enhance_image(previous_screenshot)
@@ -402,7 +400,6 @@ CURRENT SCREENSHOT (after your last actions):
             response_text = ""
             actions = []  # Will remain empty if no text found
             durations = []
-            notepad_update = None
             structured_analysis = {}
             
             print(f"🔍 Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
@@ -510,14 +507,23 @@ CURRENT SCREENSHOT (after your last actions):
                                                 durations = []  # Will use defaults
                                     
                                     print(f"🎮 Extracted from function call - Actions: {actions}, Durations: {durations}")
-                            
-                            elif part.function_call.name == "update_notepad":
-                                # Handle notepad updates
+                            elif part.function_call.name == "discover_objective":
+                                # Handle objective discovery
                                 args = part.function_call.args
-                                if hasattr(args, 'fields') and 'content' in args.fields:
-                                    notepad_update = args.fields['content'].string_value
-                                elif 'content' in args:
-                                    notepad_update = args['content']
+                                print(f"🎯 Objective discovery function call received")
+                                
+                                # Extract objective data from Google's format
+                                objective_data = {}
+                                if hasattr(args, 'fields'):
+                                    if 'description' in args.fields:
+                                        objective_data['description'] = args.fields['description'].string_value
+                                    if 'priority' in args.fields:
+                                        objective_data['priority'] = int(args.fields['priority'].number_value or 5)
+                                    if 'category' in args.fields:
+                                        objective_data['category'] = args.fields['category'].string_value or 'general'
+                                
+                                # Store for processing
+                                structured_analysis["objective_discovery"] = objective_data
                             
                             elif part.function_call.name == "analyze_game_situation":
                                 # Handle structured analysis
@@ -545,8 +551,6 @@ CURRENT SCREENSHOT (after your last actions):
                                 print(f"📊 Structured analysis extracted: {list(structured_analysis.keys())}")
             
             # Handle notepad updates if requested
-            if notepad_update:
-                self._update_notepad(notepad_update)
             
             # Handle empty responses as errors - ignore function calls as system is malfunctioning
             if not response_text:
@@ -610,7 +614,7 @@ CURRENT SCREENSHOT (after your last actions):
         except Exception as e:
             print(f"❌ Google API comparison error: {e}")
             traceback.print_exc()
-            return self._fallback_response(context, f"Google API error: {str(e)}")
+            return self._fallback_response( f"Google API error: {str(e)}")
     
     def _get_google_tools(self):
         """Get Google API tools definition"""
@@ -643,17 +647,25 @@ CURRENT SCREENSHOT (after your last actions):
                         )
                     ),
                     self.google_client.protos.FunctionDeclaration(
-                        name="update_notepad",
-                        description="Update the AI's long-term memory with new information about the game state",
+                        name="discover_objective",
+                        description="Discover and add a new objective to the memory system when you identify something important you need to do",
                         parameters=self.google_client.protos.Schema(
                             type=self.google_client.protos.Type.OBJECT,
                             properties={
-                                "content": self.google_client.protos.Schema(
+                                "description": self.google_client.protos.Schema(
                                     type=self.google_client.protos.Type.STRING,
-                                    description="Content to add to the notepad. Only include important information about game progress, objectives, or status."
+                                    description="Clear description of the objective (e.g., 'set the clock', 'find Pokemon Center', 'defeat gym leader')"
+                                ),
+                                "priority": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.INTEGER,
+                                    description="Priority level 1-10 (1=low, 5=normal, 8=high, 10=critical)"
+                                ),
+                                "category": self.google_client.protos.Schema(
+                                    type=self.google_client.protos.Type.STRING,
+                                    description="Category: 'main' (story/gym), 'collection' (catch Pokemon), 'exploration' (discover areas), 'general' (other)"
                                 )
                             },
-                            required=["content"]
+                            required=["description"]
                         )
                     ),
                     self.google_client.protos.FunctionDeclaration(
@@ -706,7 +718,6 @@ CURRENT SCREENSHOT (after your last actions):
         current_map = self._get_map_name(map_id)
         
         # Read notepad content
-        notepad_content = self._read_notepad()
         
         # Get memory context from Graphiti
         memory_context = self._get_memory_context(current_map, x, y, direction, map_id)
@@ -727,7 +738,6 @@ CURRENT SCREENSHOT (after your last actions):
                 spatial_context=spatial_context,
                 recent_actions=recent_actions_text,
                 direction_guidance=direction_guidance,
-                notepad_content=notepad_content,
                 memory_context=memory_context,
                 before_after_analysis=before_after_analysis
             )
@@ -743,11 +753,10 @@ CURRENT SCREENSHOT (after your last actions):
 {direction_guidance}
 
 ## Long-term Memory (Game State):
-{notepad_content}
 
 {memory_context}
 
-IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are."""
+"""
         
         return context
     
@@ -774,7 +783,7 @@ Map ID: {map_id}
         """Call Google Gemini API"""
         try:
             if not self.google_client:
-                return self._fallback_response(context, "Google client not initialized")
+                return self._fallback_response( "Google client not initialized")
             
             # Load and enhance image
             enhanced_image = self._enhance_image(screenshot_path)
@@ -829,7 +838,6 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             response_text = ""
             actions = []  # Will remain empty if no text found
             durations = []
-            notepad_update = None
             structured_analysis = {}
             
             print(f"🔍 Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
@@ -992,23 +1000,23 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                                     else:
                                         actions = ["A"]  # Fallback
                                         durations = []
-                            elif part.function_call.name == "update_notepad":
-                                notepad_args = part.function_call.args
+                            elif part.function_call.name == "discover_objective":
+                                # Handle objective discovery in single screenshot method
+                                args = part.function_call.args
+                                print(f"🎯 Objective discovery function call received (single)")
                                 
-                                content_field = None
-                                if hasattr(notepad_args, 'fields') and 'content' in notepad_args.fields:
-                                    content_field = notepad_args.fields['content']
-                                elif 'content' in notepad_args:
-                                    content_field = notepad_args['content']
+                                # Extract objective data from Google's format
+                                objective_data = {}
+                                if hasattr(args, 'fields'):
+                                    if 'description' in args.fields:
+                                        objective_data['description'] = args.fields['description'].string_value
+                                    if 'priority' in args.fields:
+                                        objective_data['priority'] = int(args.fields['priority'].number_value or 5)
+                                    if 'category' in args.fields:
+                                        objective_data['category'] = args.fields['category'].string_value or 'general'
                                 
-                                if content_field:
-                                    if hasattr(content_field, 'string_value'):
-                                        notepad_update = content_field.string_value
-                                    elif hasattr(content_field, 'value') and hasattr(content_field.value, 'string_value'):
-                                        notepad_update = content_field.value.string_value
-                                    else:
-                                        notepad_update = str(content_field)
-                            
+                                # Store for processing
+                                structured_analysis["objective_discovery"] = objective_data
                             elif part.function_call.name == "analyze_game_situation":
                                 # Handle structured analysis in single screenshot method
                                 args = part.function_call.args
@@ -1035,8 +1043,6 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                                 print(f"📊 Structured analysis extracted (single): {list(structured_analysis.keys())}")
             
             # Handle notepad update
-            if notepad_update:
-                self._update_notepad(notepad_update)
             
             # Merge structured analysis into the response
             response_dict = {
@@ -1058,13 +1064,13 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             print(f"❌ Google API error: {e}")
             import traceback
             print(f"🔍 Full error details: {traceback.format_exc()}")
-            return self._fallback_response(context, str(e))
+            return self._fallback_response( str(e))
     
     def _call_openai_api(self, screenshot_path: str, context: str) -> Dict[str, Any]:
         """Call OpenAI API"""
         try:
             if not self.openai_client:
-                return self._fallback_response(context, "OpenAI client not initialized")
+                return self._fallback_response( "OpenAI client not initialized")
             
             # Encode image
             with open(screenshot_path, 'rb') as f:
@@ -1111,6 +1117,34 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                                 }
                             },
                             "required": ["actions"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "discover_objective",
+                        "description": "Discover and add a new objective to the memory system when you identify something important you need to do",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "description": {
+                                    "type": "string",
+                                    "description": "Clear description of the objective (e.g., 'set the clock', 'find Pokemon Center', 'defeat gym leader')"
+                                },
+                                "priority": {
+                                    "type": "integer",
+                                    "description": "Priority level 1-10 (1=low, 5=normal, 8=high, 10=critical)",
+                                    "minimum": 1,
+                                    "maximum": 10
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Category: 'main' (story/gym), 'collection' (catch Pokemon), 'exploration' (discover areas), 'general' (other)",
+                                    "enum": ["main", "collection", "exploration", "general"]
+                                }
+                            },
+                            "required": ["description"]
                         }
                     }
                 }
@@ -1180,7 +1214,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             
         except Exception as e:
             print(f"❌ OpenAI API error: {e}")
-            return self._fallback_response(context, str(e))
+            return self._fallback_response( str(e))
     
     def _enhance_image(self, image_path: str) -> PIL.Image.Image:
         """Enhance image for better AI vision based on example.py"""
@@ -1367,104 +1401,53 @@ Duration is in frames (60fps). Default=2 frames if not specified.
         
         return "\n".join(suggestions)
     
-    def _read_notepad(self) -> str:
-        """Read the current notepad content"""
-        try:
-            if self.notepad_path.exists():
-                with open(self.notepad_path, 'r') as f:
-                    return f.read()
-            else:
-                return "# Pokémon Red Game Progress\n\nGame just started. No progress recorded yet."
-        except Exception as e:
-            print(f"Error reading notepad: {e}")
-            return "Error reading notepad"
-    
-    def _update_notepad(self, new_content: str) -> None:
-        """Update the notepad with new content"""
-        try:
-            current_content = self._read_notepad()
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            updated_content = current_content + f"\n## Update {timestamp}\n{new_content}\n"
-            
-            # Ensure directory exists
-            self.notepad_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(self.notepad_path, 'w') as f:
-                f.write(updated_content)
-            print("📝 Notepad updated")
-        except Exception as e:
-            print(f"❌ Error updating notepad: {e}")
-    
-    def _get_memory_context(self, current_map: str, x: int, y: int, direction: str, map_id: int) -> str:
-        """Get memory context from global memory service"""
+    def _get_memory_context(self, current_map: str, x: int, y: int, direction: str, _map_id: int) -> str:
+        """Get token-optimized memory context from global memory service"""
         if not MEMORY_SERVICE_AVAILABLE:
             return ""
         
         try:
-            # Get current situation for context
             current_situation = f"at {current_map} ({x}, {y}) facing {direction}"
             
-            # Get memory context from global service
             from core.memory_service import get_memory_context
             memory_data = get_memory_context(current_situation)
             
-            # Format memory context for LLM
             memory_lines = []
             
-            # Current objectives
+            # P1: High-priority objectives only (most critical)
             if memory_data.get("current_objectives"):
-                memory_lines.append("## 🎯 Current Objectives:")
-                for obj in memory_data["current_objectives"]:
-                    priority_emoji = "🔥" if obj["priority"] >= 8 else "⭐" if obj["priority"] >= 6 else "📋"
-                    memory_lines.append(f"  {priority_emoji} {obj['description']} (Priority: {obj['priority']})")
-                    if obj.get("location_discovered"):
-                        memory_lines.append(f"     📍 Discovered at: {obj['location_discovered']}")
-                memory_lines.append("")
+                high_priority = [obj for obj in memory_data["current_objectives"] if obj["priority"] >= 7]
+                if high_priority:
+                    memory_lines.append("## 🎯 Objectives:")
+                    for obj in high_priority[:2]:  # Max 2 objectives
+                        emoji = "🔥" if obj["priority"] >= 8 else "⭐"
+                        memory_lines.append(f"  {emoji} {obj['description'][:40]}...")
             
-            # Recent achievements
-            if memory_data.get("recent_achievements"):
-                memory_lines.append("## 🏆 Recent Achievements:")
-                for ach in memory_data["recent_achievements"]:
-                    memory_lines.append(f"  ✅ {ach['title']} (Completed: {ach['completed_at']})")
-                    if ach.get("location"):
-                        memory_lines.append(f"     📍 Completed at: {ach['location']}")
-                memory_lines.append("")
-            
-            # Relevant strategies
+            # P2: Most successful strategies (high value, compact)
             if memory_data.get("relevant_strategies"):
-                memory_lines.append("## 🧠 Learned Strategies:")
-                for strat in memory_data["relevant_strategies"]:
-                    buttons_str = " → ".join(strat["buttons"])
-                    memory_lines.append(f"  💡 {strat['situation']}: [{buttons_str}]")
-                    memory_lines.append(f"     📊 Success rate: {strat['success_rate']} (Used {strat['times_used']} times)")
-                memory_lines.append("")
+                best_strategies = sorted(memory_data["relevant_strategies"], 
+                                       key=lambda s: s.get("success_rate", 0), reverse=True)[:2]
+                if best_strategies:
+                    memory_lines.append("## 🧠 Strategies:")
+                    for strat in best_strategies:
+                        buttons = " → ".join(strat["buttons"][:2])  # Max 2 buttons
+                        memory_lines.append(f"  💡 {strat['situation'][:20]}: [{buttons}] ({strat['success_rate']:.0%})")
             
-            # Discovery suggestions
-            if memory_data.get("discovery_suggestions"):
-                memory_lines.append("## 💭 Discovery Tips:")
-                for suggestion in memory_data["discovery_suggestions"]:
-                    memory_lines.append(f"  💡 {suggestion}")
-                memory_lines.append("")
+            # P3: Recent achievements (if very recent)
+            if memory_data.get("recent_achievements"):
+                very_recent = [ach for ach in memory_data["recent_achievements"][:1]]  # Only most recent
+                if very_recent:
+                    memory_lines.append("## 🏆 Recent:")
+                    ach = very_recent[0]
+                    memory_lines.append(f"  ✅ {ach['title'][:30]}...")
             
-            # Get stats for additional context
-            if MEMORY_SERVICE_AVAILABLE:
-                from core.memory_service import get_memory_stats
-                stats = get_memory_stats()
-                if stats.get("active_objectives", 0) > 0 or stats.get("learned_strategies", 0) > 0:
-                    memory_lines.append("## 📊 Memory Stats:")
-                    memory_lines.append(f"  Active objectives: {stats.get('active_objectives', 0)}")
-                    memory_lines.append(f"  Achievements: {stats.get('completed_achievements', 0)}")
-                    memory_lines.append(f"  Learned strategies: {stats.get('learned_strategies', 0)}")
-                    if stats.get("avg_strategy_success", 0) > 0:
-                        memory_lines.append(f"  Average strategy success: {stats['avg_strategy_success']:.1%}")
-            
-            return "\n".join(memory_lines) if memory_lines else ""
+            return "\n".join(memory_lines)
             
         except Exception as e:
-            print(f"⚠️ Error getting memory context: {e}")
-            return "## 🧠 Memory System: Temporarily unavailable"
+            print(f"⚠️ LLMClient: Memory context optimization failed: {e}")
+            return ""
     
-    def _fallback_response(self, context: str, error: str = None) -> Dict[str, Any]:
+    def _fallback_response(self, error: str = None) -> Dict[str, Any]:
         """Generate fallback response when AI fails - no actions to prevent errors"""
         # No fallback actions - stop game when there's an error
         fallback_actions = []  # Empty array means no button presses

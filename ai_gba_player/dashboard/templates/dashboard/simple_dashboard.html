@@ -89,16 +89,37 @@
                     <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
                 </div>
                 <div class="config-section">
-                    <h3>📝 AI Memory Log</h3>
-                    <div class="notepad-display" id="notepad-display">
-                        <div class="notepad-header">
-                            <span class="notepad-status" id="notepad-status">No updates yet</span>
-                            <span class="entry-count" id="entry-count">0 entries</span>
+                    <h3>🧠 Graphiti Memory</h3>
+                    <div class="memory-display" id="memory-display">
+                        <div class="memory-header">
+                            <span class="memory-status" id="memory-status">Loading...</span>
+                            <span class="memory-stats" id="memory-stats">0 objectives, 0 strategies</span>
                         </div>
-                        <div class="notepad-content" id="notepad-content">
-                            <div class="notepad-empty">Waiting for AI memory updates...</div>
+                        
+                        <!-- Objectives Panel -->
+                        <div class="memory-section">
+                            <h4>🎯 Current Objectives</h4>
+                            <div class="objectives-list" id="objectives-list">
+                                <div class="memory-empty">No objectives yet...</div>
+                            </div>
+                            <div class="add-objective-form">
+                                <input type="text" id="objective-input" placeholder="Add new objective..." maxlength="100">
+                                <select id="objective-priority">
+                                    <option value="5">Normal (5)</option>
+                                    <option value="7">High (7)</option>
+                                    <option value="9">Critical (9)</option>
+                                </select>
+                                <button class="btn btn-sm" onclick="addObjective()">➕ Add</button>
+                            </div>
                         </div>
-                        <button class="btn btn-outline" onclick="clearNotepad()" style="background: #dc2626; color: white; margin-top: 8px; font-size: 11px; padding: 6px 12px;">🗑️ Clear Notepad</button>
+                        
+                        <!-- Strategies Panel -->
+                        <div class="memory-section">
+                            <h4>💡 Learned Strategies</h4>
+                            <div class="strategies-list" id="strategies-list">
+                                <div class="memory-empty">No strategies learned yet...</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

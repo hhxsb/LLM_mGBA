@@ -39,12 +39,7 @@ Your overall game goals are: 1. Beat the Elite Four and become champion. 2. Coll
 
 {direction_guidance}
 
-## Long-term Memory (Game State):
-{notepad_content}
-
 {memory_context}
-
-IMPORTANT: After each significant change (entering new area, talking to someone, finding items), use the update_notepad function to record what you learned or where you are.
 
 {before_after_analysis}
 
@@ -58,10 +53,12 @@ IMPORTANT: After each significant change (entering new area, talking to someone,
 2. **Describe**: Current game state and spatial situation (2-3 sentences)  
 3. **Learn**: If previous actions didn't work as expected, adjust your approach
 4. **Plan**: Navigation with precise timing - destination coordinates, movement units, turn calculations
-5. **Execute**: Use BOTH functions below:
+5. **Execute**: Use the functions below as needed:
    - **analyze_game_situation()**: Provide structured analysis of the current situation for narration
    - **press_button_sequence()**: Execute your planned button actions with calculated durations
+   - **discover_objective()**: Add new objectives you discover (e.g., "set the clock", "find Pokemon Center")
 
-**IMPORTANT**: You MUST call both functions for every response:
+**IMPORTANT**: You MUST call these functions for every response:
 - Call analyze_game_situation() with detailed analysis of what's happening
 - Call press_button_sequence() with your planned actions
+- Call discover_objective() whenever you identify a new goal or task to accomplish

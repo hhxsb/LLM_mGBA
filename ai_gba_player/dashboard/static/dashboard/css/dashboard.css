@@ -280,15 +280,16 @@ body {
 }
 
 /* Notepad Styles */
-.notepad-display { 
+/* Graphiti Memory System Styles */
+.memory-display { 
     border: 1px solid #e1e8ed; 
     border-radius: 6px; 
     background: #f8f9fa; 
     overflow: hidden; 
 }
 
-.notepad-header { 
-    background: #6366f1; 
+.memory-header { 
+    background: #8b5cf6; 
     color: white; 
     padding: 8px 12px; 
     display: flex; 
@@ -296,57 +297,152 @@ body {
     font-size: 11px; 
 }
 
-.notepad-status { 
+.memory-status { 
     font-weight: 500; 
 }
 
-.entry-count { 
+.memory-stats { 
     opacity: 0.8; 
 }
 
-.notepad-content { 
-    max-height: 180px; 
-    overflow-y: auto; 
-    padding: 8px; 
-    font-family: 'Monaco', 'Menlo', monospace; 
-    font-size: 11px; 
-    line-height: 1.4; 
+.memory-section { 
+    padding: 10px; 
+    border-bottom: 1px solid #e1e8ed; 
 }
 
-.notepad-entry { 
+.memory-section:last-child { 
+    border-bottom: none; 
+}
+
+.memory-section h4 { 
+    font-size: 12px; 
+    font-weight: 600; 
+    margin-bottom: 8px; 
+    color: #374151; 
+}
+
+/* Objectives Styles */
+.objectives-list { 
+    max-height: 120px; 
+    overflow-y: auto; 
+    margin-bottom: 8px; 
+}
+
+.objective-item { 
     background: white; 
     border: 1px solid #e1e8ed; 
     border-radius: 4px; 
     padding: 6px 8px; 
-    margin-bottom: 6px; 
+    margin-bottom: 4px; 
+    font-size: 11px; 
 }
 
-.notepad-entry:last-child { 
-    margin-bottom: 0; 
+.objective-item.completed { 
+    opacity: 0.6; 
+    background: #f0f9ff; 
 }
 
-.notepad-entry-header { 
-    color: #6366f1; 
-    font-weight: 600; 
+.objective-header { 
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+}
+
+.objective-priority { 
+    font-size: 12px; 
+}
+
+.objective-description { 
+    flex: 1; 
+    font-weight: 500; 
+}
+
+.objective-meta { 
+    display: flex; 
+    gap: 8px; 
+    margin-top: 2px; 
+    font-size: 10px; 
+    color: #6b7280; 
+}
+
+.add-objective-form { 
+    display: flex; 
+    gap: 4px; 
+    align-items: center; 
+}
+
+.add-objective-form input { 
+    flex: 1; 
+    font-size: 11px; 
+    padding: 4px 6px; 
+}
+
+.add-objective-form select { 
+    font-size: 10px; 
+    padding: 4px; 
+}
+
+/* Strategies Styles */
+.strategies-list { 
+    max-height: 100px; 
+    overflow-y: auto; 
+}
+
+.strategy-item { 
+    background: white; 
+    border: 1px solid #e1e8ed; 
+    border-radius: 4px; 
+    padding: 6px 8px; 
+    margin-bottom: 4px; 
+    font-size: 11px; 
+}
+
+.strategy-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
     margin-bottom: 2px; 
 }
 
-.notepad-entry-content { 
+.strategy-situation { 
+    font-weight: 500; 
     color: #374151; 
-    white-space: pre-wrap; 
 }
 
-.notepad-entry.new { 
-    background: #fef3cd; 
-    border-color: #f59e0b; 
-    animation: highlight 2s ease-out; 
+.strategy-success { 
+    font-weight: 600; 
+    font-size: 10px; 
 }
 
-.notepad-empty { 
+.strategy-buttons { 
+    font-family: 'Monaco', 'Menlo', monospace; 
+    color: #6366f1; 
+    font-size: 10px; 
+    margin-bottom: 2px; 
+}
+
+.strategy-meta { 
+    font-size: 10px; 
+    color: #6b7280; 
+}
+
+.memory-empty { 
     color: #6b7280; 
     text-align: center; 
-    padding: 20px; 
+    padding: 15px; 
     font-style: italic; 
+    font-size: 11px; 
+}
+
+.btn-xs { 
+    font-size: 10px; 
+    padding: 2px 6px; 
+    border-radius: 3px; 
+}
+
+.btn-sm { 
+    font-size: 10px; 
+    padding: 4px 8px; 
 }
 
 @keyframes highlight { 

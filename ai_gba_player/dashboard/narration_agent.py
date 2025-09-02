@@ -145,12 +145,23 @@ class NarrationAgent:
                     if queue_item is None:
                         break
                     
-                    # Unpack player response and game context
-                    player_response_dict, game_context = queue_item
+                    # Handle both old format (tuple) and new format (dict) for backward compatibility
+                    if isinstance(queue_item, dict) and "player_response" in queue_item:
+                        # New enhanced format with session context
+                        player_response_dict = queue_item["player_response"]
+                        game_context = queue_item["game_state"]
+                        session_context = queue_item.get("session_context", {})
+                        
+                        # Integrate session context into narration context
+                        self._integrate_player_session_context(session_context)
+                    else:
+                        # Old format for backward compatibility
+                        player_response_dict, game_context = queue_item
+                        session_context = {}
                     
                     print(f"🎤 NarrationAgent: Processing narration request #{self.narrations_generated + 1}")
                     
-                    # Generate narration
+                    # Generate narration with enhanced context
                     narration_response = self.generate_narration(player_response_dict, game_context)
                     
                     # Send narration to frontend
@@ -217,6 +228,51 @@ class NarrationAgent:
             message += f" | 🗣️ Dialogue: {narration_response.dialogue_reading}"
         
         self._send_chat_message("narration", message)
+    
+    def _integrate_player_session_context(self, player_session_context: Dict[str, Any]):
+        """Integrate PlayerAgent's session context into narration context for richer storytelling"""
+        if not player_session_context:
+            return
+        
+        # Add recent NPC encounters from PlayerAgent to our dialogue history
+        player_npcs = player_session_context.get("encountered_npcs", [])
+        for npc_record in player_npcs:
+            # Avoid duplicates by checking if we already have this dialogue
+            if not any(existing.get("dialogue") == npc_record.get("dialogue") 
+                      for existing in self.session_context["dialogue_history"]):
+                self.session_context["dialogue_history"].append({
+                    "timestamp": npc_record.get("timestamp", time.time()),
+                    "dialogue": npc_record.get("dialogue", "")
+                })
+        
+        # Keep only recent dialogues
+        if len(self.session_context["dialogue_history"]) > 5:
+            self.session_context["dialogue_history"] = self.session_context["dialogue_history"][-5:]
+        
+        # Enhance ongoing narrative with performance context
+        performance_stats = player_session_context.get("performance_stats", {})
+        decision_count = performance_stats.get("decision_count", 0)
+        consecutive_errors = performance_stats.get("consecutive_errors", 0)
+        success_rate = performance_stats.get("success_rate", 1.0)
+        
+        # Update narrative tone based on performance
+        if consecutive_errors > 2:
+            self.session_context["ongoing_narrative"] = "struggle and determination"
+        elif success_rate > 0.8:
+            self.session_context["ongoing_narrative"] = "confident exploration"
+        else:
+            self.session_context["ongoing_narrative"] = "careful navigation"
+        
+        # Add decision pattern context for more dynamic narration
+        recent_decisions = player_session_context.get("recent_decisions", [])
+        if recent_decisions:
+            last_decision = recent_decisions[-1]
+            if last_decision.get("dialogue"):
+                self.session_context["character_state"]["last_interaction"] = "conversation"
+            elif any(action in last_decision.get("actions", []) for action in ["UP", "DOWN", "LEFT", "RIGHT"]):
+                self.session_context["character_state"]["last_interaction"] = "movement"
+            else:
+                self.session_context["character_state"]["last_interaction"] = "action"
     
     def generate_narration(self, player_response: Dict[str, Any], 
                           game_context: Dict[str, Any]) -> NarrationResponse:
