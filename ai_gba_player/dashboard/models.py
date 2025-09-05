@@ -187,16 +187,16 @@ class ROMConfiguration(models.Model):
         import re
         filename_lower = filename.lower()
         
-        # Pokemon games
+        # Pokemon games - order matters for specificity (more specific first)
         pokemon_patterns = {
+            'pokemon_firered': [r'pokemon.*(fire.*red|firered)', r'firered', r'pkmn.*firered'],
+            'pokemon_leafgreen': [r'pokemon.*(leaf.*green|leafgreen)', r'leafgreen', r'pkmn.*leafgreen'],
+            'pokemon_sapphire': [r'pokemon.*sapphire', r'sapphire.*pokemon', r'pkmn.*sapphire'],
+            'pokemon_ruby': [r'pokemon.*ruby', r'ruby.*pokemon', r'pkmn.*ruby'],
+            'pokemon_emerald': [r'pokemon.*emerald', r'emerald.*pokemon', r'pkmn.*emerald'],
             'pokemon_red': [r'pokemon.*red', r'red.*pokemon', r'pkmn.*red'],
             'pokemon_blue': [r'pokemon.*blue', r'blue.*pokemon', r'pkmn.*blue'],
             'pokemon_yellow': [r'pokemon.*yellow', r'yellow.*pokemon', r'pkmn.*yellow'],
-            'pokemon_ruby': [r'pokemon.*ruby', r'ruby.*pokemon', r'pkmn.*ruby'],
-            'pokemon_sapphire': [r'pokemon.*sapphire', r'sapphire.*pokemon', r'pkmn.*sapphire'],
-            'pokemon_emerald': [r'pokemon.*emerald', r'emerald.*pokemon', r'pkmn.*emerald'],
-            'pokemon_firered': [r'pokemon.*(fire.*red|firered)', r'firered', r'pkmn.*firered'],
-            'pokemon_leafgreen': [r'pokemon.*(leaf.*green|leafgreen)', r'leafgreen', r'pkmn.*leafgreen'],
         }
         
         # Other popular GBA games

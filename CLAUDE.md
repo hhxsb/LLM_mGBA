@@ -291,31 +291,6 @@ AI Service → mGBA: "request_screenshot"
 AI Service → mGBA: "0,1,4" (button codes: A,B,RIGHT)
 ```
 
-## Logging Architecture (NEW)
-
-### Centralized Logging System
-- **Configuration**: `ai_gba_player/core/logging_config.py` - Centralized logging setup
-- **Visual Organization**: Emoji prefixes for different log levels (🔍 DEBUG, 📝 INFO, ⚠️ WARNING, ❌ ERROR)
-- **Dual Output**: Console (with emojis) + optional file logging with timestamps
-- **Performance**: Replaced scattered print statements with structured logging
-
-### Usage Pattern
-```python
-from core.logging_config import get_logger
-logger = get_logger(__name__)
-
-logger.info("Service started")        # 📝 INFO
-logger.debug("Screenshot processed")  # 🔍 DEBUG  
-logger.warning("API timeout")         # ⚠️ WARNING
-logger.error("Connection failed")     # ❌ ERROR
-```
-
-### Benefits
-- **Consistent Format**: All logging follows same structure across modules
-- **Visual Clarity**: Emoji prefixes make log scanning easier during development
-- **Performance**: Eliminates overhead of f-string formatting in print statements
-- **Scalability**: Easy to adjust log levels and add file/remote logging
-
 ## LLM Integration
 
 ### Tool-Based Architecture
@@ -452,7 +427,7 @@ The simplified system is designed with these principles:
 
 ### 🔧 Simplified Architecture Benefits
 - **90% less code complexity** than original multi-process design
-- **Single-file UI approach** eliminates template loading overhead  
+- **Single-file UI approach** eliminates template loading overhead
 - **Direct database storage** removes JSON file management complexity
 - **Embedded AI service** runs as daemon thread from Django process
 - **Centralized logging** replaces scattered print statements with structured logging
@@ -474,6 +449,7 @@ This project follows strict coding standards to ensure maintainability, testabil
 - ✅ **Proper Encapsulation**: Private methods use `_` prefix, internal methods use `__` prefix
 - ✅ **Method Placement**: Functions must belong to appropriate classes, not scattered as standalone functions
 - ✅ **Interface Design**: Public methods provide clear APIs, implementation details are private
+- ✅ **Concise Code**: Keep files under 800 lines when possible for maintainability
 
 **Examples**:
 ```python
