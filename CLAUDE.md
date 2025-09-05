@@ -112,14 +112,11 @@ data/                              # AI memory and game state
 └── screenshots/                   # Game screenshots for AI analysis
 ```
 
-### Legacy/Unused Components (NOT used by main program)
+### Development/Testing Components (Not part of main program)
 ```
-api/                               # ❌ UNUSED - Legacy REST API superseded by simple_views
-core/                              # ❌ UNUSED - Legacy base framework classes  
-games/                             # ❌ UNUSED - Game-specific modules (replaced by simple detection)
-tests/                             # ❌ UNUSED - Legacy test files
 dev-tools/                         # ⚠️  Development utilities only (not part of main program)
-docs/                              # ⚠️  Documentation only
+docs/                              # ⚠️  Documentation only  
+test_*.py                          # ⚠️  Integration test files (root level)
 ```
 
 ## Actual Architecture (How `python manage.py runserver` Works)
@@ -294,6 +291,31 @@ AI Service → mGBA: "request_screenshot"
 AI Service → mGBA: "0,1,4" (button codes: A,B,RIGHT)
 ```
 
+## Logging Architecture (NEW)
+
+### Centralized Logging System
+- **Configuration**: `ai_gba_player/core/logging_config.py` - Centralized logging setup
+- **Visual Organization**: Emoji prefixes for different log levels (🔍 DEBUG, 📝 INFO, ⚠️ WARNING, ❌ ERROR)
+- **Dual Output**: Console (with emojis) + optional file logging with timestamps
+- **Performance**: Replaced scattered print statements with structured logging
+
+### Usage Pattern
+```python
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
+logger.info("Service started")        # 📝 INFO
+logger.debug("Screenshot processed")  # 🔍 DEBUG  
+logger.warning("API timeout")         # ⚠️ WARNING
+logger.error("Connection failed")     # ❌ ERROR
+```
+
+### Benefits
+- **Consistent Format**: All logging follows same structure across modules
+- **Visual Clarity**: Emoji prefixes make log scanning easier during development
+- **Performance**: Eliminates overhead of f-string formatting in print statements
+- **Scalability**: Easy to adjust log levels and add file/remote logging
+
 ## LLM Integration
 
 ### Tool-Based Architecture
@@ -355,6 +377,8 @@ def _call_new_provider_api(self, screenshot_path, context):
 - **Service Crashes**: No crash loops, clean restart capability
 
 ## Testing
+Every function should have unit test coverage.
+Every feature should have integration test coverage.
 
 ### AI Service Testing
 ```bash
@@ -417,19 +441,21 @@ The simplified system is designed with these principles:
 - `ai_gba_player/dashboard/ai_game_service.py` - **CORE: Socket server + AI logic**
 - `ai_gba_player/dashboard/llm_client.py` - **CORE: Multi-provider LLM client**
 - `ai_gba_player/dashboard/models.py` - Database configuration storage
+- `ai_gba_player/core/logging_config.py` - **NEW: Centralized logging system**
 - `emulator/script.lua` - mGBA interface script
 
-### ❌ Disabled/Unused Components (Safe to ignore)
-- `ai_gba_player/api/` - **DISABLED in settings.py** - Legacy REST API superseded
-- `core/` (root) - **NOT IMPORTED** - Legacy base framework classes
-- `games/` - **NOT USED** - Game-specific modules (simplified approach used)
-- `staticfiles/rest_framework/` - **REMOVED** - Unused static files cleaned up
+### 🧹 Recently Cleaned Up (Removed unused legacy code)
+- `ai_gba_player/api/` - **REMOVED** - Legacy REST API superseded by simple_views
+- `core/` (root level) - **REMOVED** - Legacy base framework classes
+- `games/` - **REMOVED** - Game-specific modules (simplified approach used)
+- `tests/` (root level) - **REMOVED** - Legacy test files superseded by proper unit tests
 
 ### 🔧 Simplified Architecture Benefits
 - **90% less code complexity** than original multi-process design
-- **Single-file UI approach** eliminates template loading overhead
+- **Single-file UI approach** eliminates template loading overhead  
 - **Direct database storage** removes JSON file management complexity
 - **Embedded AI service** runs as daemon thread from Django process
+- **Centralized logging** replaces scattered print statements with structured logging
 - **Zero external dependencies** beyond Django and LLM APIs
 
 The system represents a **major architectural simplification** optimized for reliability and maintainability.

@@ -7,6 +7,9 @@ import time
 import os
 import json
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 # Simple configuration storage (in a real app this would be in database)
 CONFIG_FILE = '/tmp/ai_gba_player_config.json'
 

@@ -15,8 +15,10 @@ from datetime import datetime
 import base64
 from pathlib import Path
 
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
+# Channels/WebSocket imports removed - using polling-based communication
 from .models import Configuration
 from .llm_client import LLMClient
 from .game_detector import get_game_detector
@@ -46,8 +48,7 @@ class AIGameService(threading.Thread):
         self.host = "127.0.0.1"
         self.port = 8888
         
-        # WebSocket channel layer for frontend updates
-        self.channel_layer = get_channel_layer()
+        # Using polling-based communication instead of WebSockets
         
         # State tracking
         self.mgba_connected = False
@@ -130,7 +131,7 @@ class AIGameService(threading.Thread):
         # Initialize notepad
         self._initialize_notepad()
         
-        print(f"🎮 AIGameService initialized - will listen on {self.host}:{self.port}")
+        logger.info(f"AIGameService initialized - will listen on {self.host}:{self.port}")
     
     def _initialize_memory_system(self):
         """Initialize memory system when Django apps are ready"""
@@ -140,9 +141,9 @@ class AIGameService(threading.Thread):
                 from core.memory_service import get_global_memory_system
                 self.memory_system = get_global_memory_system()
                 if self.memory_system:
-                    print("🧠 AI Service: Connected to global memory system")
+                    logger.info(" AI Service: Connected to global memory system")
                 else:
-                    print("⚠️ AI Service: Global memory system unavailable")
+                    logger.warning(" AI Service: Global memory system unavailable")
                 global MEMORY_SERVICE_AVAILABLE, _memory_service_functions
                 MEMORY_SERVICE_AVAILABLE = True
                 # Import memory functions
@@ -156,9 +157,9 @@ class AIGameService(threading.Thread):
                     'get_memory_context': get_memory_context
                 })
             else:
-                print("⚠️ AI Service: Django apps not ready yet, memory system unavailable")
+                logger.warning(" AI Service: Django apps not ready yet, memory system unavailable")
         except Exception as e:
-            print(f"⚠️ AI Service: Memory system initialization failed: {e}")
+            logger.warning(f" AI Service: Memory system initialization failed: {e}")
             self.memory_system = None
     
     def _initialize_screenshot_tracking(self):
@@ -166,20 +167,20 @@ class AIGameService(threading.Thread):
         try:
             if not self.screenshot_dir.exists():
                 self.screenshot_dir.mkdir(parents=True, exist_ok=True)
-                print(f"📁 Created screenshot directory: {self.screenshot_dir}")
+                logger.info(f" Created screenshot directory: {self.screenshot_dir}")
                 return
             
             # Perform complete cleanup of screenshot folder
-            print("🧹 Starting comprehensive screenshot folder cleanup...")
+            logger.info(" Starting comprehensive screenshot folder cleanup...")
             self._cleanup_all_screenshots()
             
             # Initialize clean state
             self.screenshot_map = {}
             self.screenshot_counter = 0
-            print(f"✅ Screenshot folder cleaned - ready for controlled naming")
+            logger.info(f" Screenshot folder cleaned - ready for controlled naming")
             
         except Exception as e:
-            print(f"❌ Error initializing screenshot tracking: {e}")
+            logger.error(f" Error initializing screenshot tracking: {e}")
     
     def _cleanup_all_screenshots(self):
         """Remove all screenshots from the directory for a clean start"""
@@ -192,15 +193,15 @@ class AIGameService(threading.Thread):
                 for file_path in screenshot_files:
                     try:
                         file_path.unlink()  # Delete the file
-                        print(f"🗑️ Removed: {file_path.name}")
+                        logger.debug(f" Removed: {file_path.name}")
                         removed_count += 1
                     except Exception as e:
-                        print(f"⚠️ Error removing {file_path.name}: {e}")
+                        logger.warning(f" Error removing {file_path.name}: {e}")
             
-            print(f"✅ Complete cleanup: removed {removed_count} screenshot files")
+            logger.info(f" Complete cleanup: removed {removed_count} screenshot files")
             
         except Exception as e:
-            print(f"❌ Error during complete screenshot cleanup: {e}")
+            logger.error(f" Error during complete screenshot cleanup: {e}")
     
     def _cleanup_old_screenshots(self):
         """Remove old screenshots, keeping only the most recent ones"""
@@ -224,17 +225,17 @@ class AIGameService(threading.Thread):
                 try:
                     if os.path.exists(file_path):
                         os.remove(file_path)
-                        print(f"🗑️ Removed old screenshot: {os.path.basename(file_path)}")
+                        logger.debug(f" Removed old screenshot: {os.path.basename(file_path)}")
                 except Exception as e:
-                    print(f"⚠️ Error removing {file_path}: {e}")
+                    logger.warning(f" Error removing {file_path}: {e}")
             
             # Update the map to only include kept files
             self.screenshot_map = dict(to_keep)
             
-            print(f"✅ Screenshot cleanup: kept {len(self.screenshot_map)}, removed {len(to_remove)}")
+            logger.info(f" Screenshot cleanup: kept {len(self.screenshot_map)}, removed {len(to_remove)}")
             
         except Exception as e:
-            print(f"❌ Error during screenshot cleanup: {e}")
+            logger.error(f" Error during screenshot cleanup: {e}")
     
     def _cleanup_legacy_screenshots(self):
         """Remove old mixed-format screenshot files to prevent confusion"""
@@ -254,18 +255,18 @@ class AIGameService(threading.Thread):
                 for file_path in legacy_files:
                     try:
                         os.remove(file_path)
-                        print(f"🗑️ Removed legacy file: {os.path.basename(file_path)}")
+                        logger.debug(f" Removed legacy file: {os.path.basename(file_path)}")
                         removed_count += 1
                     except Exception as e:
-                        print(f"⚠️ Error removing {file_path}: {e}")
+                        logger.warning(f" Error removing {file_path}: {e}")
             
             if removed_count > 0:
-                print(f"✅ Legacy cleanup: removed {removed_count} old screenshot files")
+                logger.info(f" Legacy cleanup: removed {removed_count} old screenshot files")
             else:
-                print(f"✅ Legacy cleanup: no old files to remove")
+                logger.info(f" Legacy cleanup: no old files to remove")
                 
         except Exception as e:
-            print(f"❌ Error during legacy screenshot cleanup: {e}")
+            logger.error(f" Error during legacy screenshot cleanup: {e}")
     
     def _register_new_screenshot(self, screenshot_path: str):
         """Register a new screenshot in the tracking map and clean up if needed"""
@@ -275,10 +276,10 @@ class AIGameService(threading.Thread):
                 creation_time = self.screenshot_counter  # Use counter for deterministic ordering
                 
                 # Debug: show what we're registering
-                print(f"🔧 Registering controlled screenshot:")
-                print(f"   📁 Path: {screenshot_path}")
-                print(f"   📊 Counter: {creation_time}")
-                print(f"   📊 Map size before: {len(self.screenshot_map)}")
+                logger.debug(f" Registering controlled screenshot:")
+                logger.debug(f"   Path: {screenshot_path}")
+                logger.debug(f"   Counter: {creation_time}")
+                logger.debug(f"   Map size before: {len(self.screenshot_map)}")
                 
                 self.screenshot_map[screenshot_path] = creation_time
                 
@@ -287,15 +288,15 @@ class AIGameService(threading.Thread):
                 
                 # Clean up old screenshots if we exceed the limit
                 if len(self.screenshot_map) > self.max_screenshots:
-                    print(f"🧹 Triggering cleanup - {len(self.screenshot_map)} > {self.max_screenshots}")
+                    logger.info(f" Triggering cleanup - {len(self.screenshot_map)} > {self.max_screenshots}")
                     self._cleanup_old_screenshots()
                 
-                print(f"📸 Registered: {os.path.basename(screenshot_path)} (total: {len(self.screenshot_map)})")
+                logger.debug(f" Registered: {os.path.basename(screenshot_path)} (total: {len(self.screenshot_map)})")
                 
                 return screenshot_path
                 
         except Exception as e:
-            print(f"❌ Error registering screenshot: {e}")
+            logger.error(f" Error registering screenshot: {e}")
             return screenshot_path  # Return original path as fallback
     
     def _get_latest_screenshots(self) -> tuple[str, str]:
@@ -319,17 +320,17 @@ class AIGameService(threading.Thread):
             current_path = sorted_screenshots[0][0]    # Most recent (current)
             previous_path = sorted_screenshots[1][0]   # Second most recent (previous)
             
-            print(f"📸 Screenshot pair - Previous: {os.path.basename(previous_path)}, Current: {os.path.basename(current_path)}")
+            logger.debug(f" Screenshot pair - Previous: {os.path.basename(previous_path)}, Current: {os.path.basename(current_path)}")
             
             return previous_path, current_path
             
         except Exception as e:
-            print(f"❌ Error getting latest screenshots: {e}")
+            logger.error(f" Error getting latest screenshots: {e}")
             return None, None
     
     def run(self):
         """Main thread execution - start socket server and handle connections"""
-        print("🚀 Starting AI Game Service...")
+        logger.info(" Starting AI Game Service...")
         self.running = True
         
         try:
@@ -337,7 +338,7 @@ class AIGameService(threading.Thread):
             self._send_chat_message("system", "🔗 AI Service started - waiting for mGBA connection...")
             self._accept_connections()
         except Exception as e:
-            print(f"❌ AI Game Service error: {e}")
+            logger.error(f" AI Game Service error: {e}")
             traceback.print_exc()
             self._send_chat_message("system", f"❌ Service error: {str(e)}")
         finally:
@@ -345,7 +346,7 @@ class AIGameService(threading.Thread):
     
     def stop(self):
         """Stop the AI Game Service"""
-        print("🛑 Stopping AI Game Service...")
+        logger.info(" Stopping AI Game Service...")
         self.running = False
         self.mgba_connected = False
         
@@ -368,13 +369,13 @@ class AIGameService(threading.Thread):
     
     def reset_llm_session(self):
         """Reset the LLM session to clear any conversation history"""
-        print("🔄 Resetting LLM session...")
+        logger.info(" Resetting LLM session...")
         
         if self.llm_client:
             self.llm_client.reset_session()
             self._send_chat_message("system", "🔄 LLM session reset - starting fresh!")
         else:
-            print("⚠️ No LLM client to reset")
+            logger.warning(" No LLM client to reset")
             self._send_chat_message("system", "⚠️ No LLM client active to reset")
         
         # Reset AgentCoordinator sessions
@@ -384,7 +385,7 @@ class AIGameService(threading.Thread):
         self.recent_actions = []
         self.decision_count = 0
         
-        print("✅ LLM session reset completed")
+        logger.info(" LLM session reset completed")
     
     def _load_timing_config(self) -> dict:
         """Load timing configuration from Django settings or config file"""
@@ -408,10 +409,10 @@ class AIGameService(threading.Thread):
                         'max_wait_time': config.get('max_wait_time', 10.0)
                     }
             except Exception as e:
-                print(f"⚠️ Could not load timing config from file: {e}")
+                logger.warning(f" Could not load timing config from file: {e}")
                 
         except Exception as e:
-            print(f"⚠️ Error loading timing configuration: {e}")
+            logger.warning(f" Error loading timing configuration: {e}")
         
         # Fallback to default values
         return {
@@ -466,7 +467,7 @@ class AIGameService(threading.Thread):
         # Apply safety cap
         final_delay = min(total_delay, self.timing_config['max_wait_time'])
         
-        print(f"⏱️ Calculated screenshot delay: {final_delay:.2f}s for {len(actions)} actions")
+        logger.debug(f" Calculated screenshot delay: {final_delay:.2f}s for {len(actions)} actions")
         return final_delay
     
     def _classify_error_type(self, error: Exception) -> str:
@@ -520,7 +521,7 @@ class AIGameService(threading.Thread):
         if self.success_rate_tracking['successes'] % 10 == 0:
             total = self.success_rate_tracking['successes'] + self.success_rate_tracking['failures']
             success_rate = (self.success_rate_tracking['successes'] / total) * 100
-            print(f"📊 AI Success Rate: {success_rate:.1f}% ({total} total requests)")
+            logger.debug(f" AI Success Rate: {success_rate:.1f}% ({total} total requests)")
     
     def _record_ai_failure(self, error: Exception, screenshot_path: str, game_state: Dict[str, Any]):
         """Record failed AI request/response cycle"""
@@ -537,8 +538,8 @@ class AIGameService(threading.Thread):
             'timestamp': time.time()
         }
         
-        print(f"📉 AI Failure #{self.consecutive_errors} (Retry {self.current_retry_count}/{self.max_retry_attempts})")
-        print(f"🔍 Error Type: {self.last_error_info['error_type']}")
+        logger.warning(f" AI Failure #{self.consecutive_errors} (Retry {self.current_retry_count}/{self.max_retry_attempts})")
+        logger.debug(f" Error Type: {self.last_error_info['error_type']}")
     
     def _setup_socket_server(self):
         """Set up the socket server for mGBA communication"""
@@ -548,7 +549,7 @@ class AIGameService(threading.Thread):
             self.socket.bind((self.host, self.port))
             self.socket.listen(1)
             self.socket.settimeout(1.0)  # Non-blocking accept with timeout
-            print(f"✅ Socket server listening on {self.host}:{self.port}")
+            logger.info(f" Socket server listening on {self.host}:{self.port}")
         except Exception as e:
             raise Exception(f"Failed to setup socket server: {e}")
     
@@ -557,7 +558,7 @@ class AIGameService(threading.Thread):
         while self.running:
             try:
                 client_socket, client_address = self.socket.accept()
-                print(f"🔗 mGBA connected from {client_address}")
+                logger.info(f" mGBA connected from {client_address}")
                 
                 # Close any existing connection
                 if self.client_socket:
@@ -578,7 +579,7 @@ class AIGameService(threading.Thread):
                 continue
             except Exception as e:
                 if self.running:
-                    print(f"⚠️ Connection error: {e}")
+                    logger.warning(f" Connection error: {e}")
                     self._send_chat_message("system", f"⚠️ Connection error: {str(e)}")
     
     def _handle_mgba_connection(self):
@@ -597,7 +598,7 @@ class AIGameService(threading.Thread):
                     
                     # Debug: Show if we received partial data
                     if len(self.message_buffer) > 100 and '\n' not in self.message_buffer:
-                        print(f"🔄 Buffering large message: {len(self.message_buffer)} chars")
+                        logger.info(f" Buffering large message: {len(self.message_buffer)} chars")
                     
                     # Process complete messages (terminated by newlines)
                     while '\n' in self.message_buffer:
@@ -605,17 +606,17 @@ class AIGameService(threading.Thread):
                         message = line.strip()
                         
                         if message:  # Only process non-empty messages
-                            print(f"📨 Received from mGBA: {message}")
+                            logger.debug(f" Received from mGBA: {message}")
                             self._process_mgba_message(message)
                     
                 except socket.timeout:
                     continue
                 except Exception as e:
-                    print(f"⚠️ Error receiving data: {e}")
+                    logger.warning(f" Error receiving data: {e}")
                     break
                     
         except Exception as e:
-            print(f"❌ Connection handling error: {e}")
+            logger.error(f" Connection handling error: {e}")
         finally:
             self.mgba_connected = False
             self._send_chat_message("system", "🔌 mGBA disconnected")
@@ -640,21 +641,21 @@ class AIGameService(threading.Thread):
             elif "||" in message and len(message.split("||")) >= 6:
                 # This looks like screenshot data without the proper prefix (probably due to message splitting)
                 # Try to process it as screenshot_with_state
-                print(f"🔧 Attempting to process orphaned screenshot data: {message}")
+                logger.debug(f" Attempting to process orphaned screenshot data: {message}")
                 self._handle_screenshot_data("screenshot_with_state||" + message)
             else:
                 # Only log as unknown if it doesn't look like partial screenshot data
                 if not any(keyword in message.lower() for keyword in ["screenshot", "png", "||"]):
-                    print(f"🤔 Unknown message from mGBA: {message}")
+                    logger.warning(f" Unknown message from mGBA: {message}")
                 else:
-                    print(f"🚧 Ignoring probable partial message: {message[:50]}...")
+                    logger.warning(f" Ignoring probable partial message: {message[:50]}...")
         except Exception as e:
-            print(f"❌ Error processing mGBA message: {e}")
+            logger.error(f" Error processing mGBA message: {e}")
             self._send_chat_message("system", f"❌ Error processing message: {str(e)}")
     
     def _handle_ready_message(self):
         """Handle 'ready' message from mGBA"""
-        print("✅ mGBA is ready for gameplay")
+        logger.info(" mGBA is ready for gameplay")
         
         # Only detect and configure game on first connection
         if not self.game_config_sent:
@@ -668,7 +669,7 @@ class AIGameService(threading.Thread):
     
     def _handle_config_loaded_message(self):
         """Handle confirmation that Lua script loaded the game config"""
-        print("✅ Game configuration loaded by mGBA")
+        logger.info(" Game configuration loaded by mGBA")
         self._send_chat_message("system", "✅ Game configuration loaded successfully")
         
         # Now that config is confirmed loaded, we can safely request screenshots
@@ -678,7 +679,7 @@ class AIGameService(threading.Thread):
     def _handle_config_error_message(self, message: str):
         """Handle config error from Lua script"""
         error_msg = message.replace("config_error||", "") if "||" in message else "Unknown config error"
-        print(f"❌ Game configuration error: {error_msg}")
+        logger.error(f" Game configuration error: {error_msg}")
         self._send_chat_message("system", f"❌ Config error: {error_msg}")
         self.game_config_sent = False
     
@@ -695,16 +696,16 @@ class AIGameService(threading.Thread):
             rom_path = config.get('rom_path', '')
             rom_display_name = config.get('rom_display_name', '')
             
-            print(f"🔍 ROM detection info: path='{rom_path}', display_name='{rom_display_name}'")
+            logger.debug(f" ROM detection info: path='{rom_path}', display_name='{rom_display_name}'")
             
             # Check if there's already a manual override
-            print(f"🔍 Game detector manual override: {self.game_detector.manual_override}")
+            logger.debug(f" Game detector manual override: {self.game_detector.manual_override}")
             
             # Test individual detection methods for debugging
             name_detection = self.game_detector.detect_game_from_rom_name(rom_display_name) if rom_display_name else None
             path_detection = self.game_detector.detect_game_from_path(rom_path) if rom_path else None
-            print(f"🔍 Name detection result: {name_detection}")
-            print(f"🔍 Path detection result: {path_detection}")
+            logger.debug(f" Name detection result: {name_detection}")
+            logger.debug(f" Path detection result: {path_detection}")
             
             # Detect game using the game detector
             detected_game_id, detection_source = self.game_detector.get_current_game(
@@ -712,7 +713,7 @@ class AIGameService(threading.Thread):
                 rom_path=rom_path
             )
             
-            print(f"🔍 Final detection result: {detected_game_id} (source: {detection_source})")
+            logger.debug(f" Final detection result: {detected_game_id} (source: {detection_source})")
             
             self.current_game_id = detected_game_id
             game_config = self.game_detector.get_game_config(detected_game_id)
@@ -721,7 +722,7 @@ class AIGameService(threading.Thread):
                 self._send_chat_message("system", f"❌ Unknown game: {detected_game_id}")
                 return
             
-            print(f"🎮 Detected game: {game_config.name} (source: {detection_source})")
+            logger.info(f" Detected game: {game_config.name} (source: {detection_source})")
             self._send_chat_message("system", f"🎮 Game detected: {game_config.name}")
             
             # Update configuration with detection results
@@ -736,7 +737,7 @@ class AIGameService(threading.Thread):
                 self._send_chat_message("system", "❌ Failed to format game config for Lua")
                 
         except Exception as e:
-            print(f"❌ Game detection error: {e}")
+            logger.error(f" Game detection error: {e}")
             self._send_chat_message("system", f"❌ Game detection failed: {str(e)}")
     
     def _update_configuration_with_detection(self, game_id: str, detection_source: str, config: Dict[str, Any]):
@@ -756,16 +757,16 @@ class AIGameService(threading.Thread):
                     db_config.game = game_id
             
             db_config.save()
-            print(f"📝 Updated configuration: game={game_id}, source={detection_source}")
+            logger.info(f" Updated configuration: game={game_id}, source={detection_source}")
             
         except Exception as e:
-            print(f"⚠️ Failed to update configuration: {e}")
+            logger.warning(f" Failed to update configuration: {e}")
     
     def _send_game_config_to_lua(self, lua_config: str):
         """Send game configuration to mGBA Lua script"""
         try:
             if not self.mgba_connected or not self.client_socket:
-                print("⚠️ Cannot send config: mGBA not connected")
+                logger.warning(" Cannot send config: mGBA not connected")
                 return False
             
             # Send config command to Lua
@@ -774,12 +775,12 @@ class AIGameService(threading.Thread):
             self.client_socket.send(f"{config_message}\n".encode('utf-8'))
             self.client_socket.settimeout(0.1)
             
-            print("📤 Game configuration sent to mGBA")
+            logger.debug(" Game configuration sent to mGBA")
             self._send_chat_message("system", "📤 Game configuration sent to mGBA")
             return True
             
         except Exception as e:
-            print(f"❌ Error sending game config: {e}")
+            logger.error(f" Error sending game config: {e}")
             self._send_chat_message("system", f"❌ Failed to send game config: {str(e)}")
             return False
     
@@ -793,8 +794,8 @@ class AIGameService(threading.Thread):
             
             # Validate message format (allow 5+ parts for controlled naming, 6+ for legacy)
             if len(parts) < 5:
-                print(f"⚠️ Invalid screenshot data format: {message}")
-                print(f"🔍 Expected 5+ parts, got {len(parts)}: {parts}")
+                logger.warning(f" Invalid screenshot data format: {message}")
+                logger.debug(f" Expected 5+ parts, got {len(parts)}: {parts}")
                 return
             
             message_type = parts[0]
@@ -806,7 +807,7 @@ class AIGameService(threading.Thread):
                     screenshot_path = parts[1]
                     direction = parts[2]
                     x_str, y_str, map_id_str = parts[3], parts[4], parts[5]
-                    print("📷 Using legacy screenshot format (path provided by mGBA)")
+                    logger.debug(" Using legacy screenshot format (path provided by mGBA)")
                 elif len(parts) >= 5:
                     # New format: "screenshot_with_state||direction||x||y||mapId" (controlled path)
                     direction = parts[1]
@@ -814,13 +815,13 @@ class AIGameService(threading.Thread):
                     
                     if self.next_screenshot_path:
                         screenshot_path = self.next_screenshot_path
-                        print("📷 Using controlled screenshot format (path managed by AI service)")
+                        logger.debug(" Using controlled screenshot format (path managed by AI service)")
                     else:
                         # For testing or when next_screenshot_path not set, generate a default
                         screenshot_path = f"/tmp/test_screenshot_{int(time.time())}.png"
-                        print("📷 Using controlled screenshot format (test/fallback path)")
+                        logger.debug(" Using controlled screenshot format (test/fallback path)")
                 else:
-                    print(f"⚠️ Invalid screenshot_with_state format: {len(parts)} parts, expected 5+")
+                    logger.warning(f" Invalid screenshot_with_state format: {len(parts)} parts, expected 5+")
                     return
             elif message_type == "enhanced_screenshot_with_state":
                 # DEPRECATED: This message type should no longer be used
@@ -833,21 +834,21 @@ class AIGameService(threading.Thread):
                 }
                 self.protocol_violations.append(violation)
                 
-                print("⚠️ WARNING: Received deprecated 'enhanced_screenshot_with_state' message")
-                print("🔧 mGBA Lua script should be updated to use only 'screenshot_with_state' format")
-                print("📋 This legacy format causes screenshot naming conflicts")
-                print(f"📊 Legacy messages received so far: {self.legacy_message_count}")
+                logger.warning(" WARNING: Received deprecated 'enhanced_screenshot_with_state' message")
+                logger.debug(" mGBA Lua script should be updated to use only 'screenshot_with_state' format")
+                logger.warning(" This legacy format causes screenshot naming conflicts")
+                logger.debug(f" Legacy messages received so far: {self.legacy_message_count}")
                 
                 if len(parts) >= 8:
                     # Old format: "enhanced_screenshot_with_state||path||previousPath||direction||x||y||mapId||buttonCount"
                     screenshot_path = parts[1]
                     direction = parts[3]
                     x_str, y_str, map_id_str = parts[4], parts[5], parts[6]
-                    print("📷 Processing legacy enhanced screenshot format (DEPRECATED)")
+                    logger.debug(" Processing legacy enhanced screenshot format (DEPRECATED)")
                     
                     # Log the problematic hardcoded paths
-                    print(f"🚨 Hardcoded paths detected: {parts[1]} | {parts[2]}")
-                    print("🔧 Update mGBA script to eliminate hardcoded screenshot paths")
+                    logger.error(f" Hardcoded paths detected: {parts[1]} | {parts[2]}")
+                    logger.debug(" Update mGBA script to eliminate hardcoded screenshot paths")
                     
                     # Track hardcoded path violation
                     if 'screenshot.png' in parts[1] or 'previous_screenshot.png' in parts[2]:
@@ -863,14 +864,14 @@ class AIGameService(threading.Thread):
                     direction = parts[1]
                     x_str, y_str, map_id_str = parts[2], parts[3], parts[4]
                     screenshot_path = self.next_screenshot_path
-                    print("📷 Using controlled enhanced screenshot format (path managed by AI service)")
+                    logger.debug(" Using controlled enhanced screenshot format (path managed by AI service)")
                 else:
-                    print(f"⚠️ Invalid enhanced_screenshot_with_state format: {len(parts)} parts")
+                    logger.warning(f" Invalid enhanced_screenshot_with_state format: {len(parts)} parts")
                     return
             elif message_type == "screenshot_error":
                 # Handle screenshot creation errors from mGBA
                 error_message = parts[1] if len(parts) > 1 else "Unknown error"
-                print(f"❌ Screenshot error from mGBA: {error_message}")
+                logger.error(f" Screenshot error from mGBA: {error_message}")
                 self._send_chat_message("system", f"❌ Screenshot failed: {error_message}")
                 
                 # Reset screenshot path and request a new screenshot after delay
@@ -879,12 +880,12 @@ class AIGameService(threading.Thread):
                 self._request_screenshot()
                 return
             else:
-                print(f"⚠️ Unknown message format: {message_type} with {len(parts)} parts")
+                logger.warning(f" Unknown message format: {message_type} with {len(parts)} parts")
                 return
             
             # Verify we have a screenshot path
             if not screenshot_path:
-                print(f"❌ No screenshot path available")
+                logger.error(f" No screenshot path available")
                 return
             
             # Safely parse coordinates with improved validation
@@ -894,9 +895,9 @@ class AIGameService(threading.Thread):
                 y = int(y_str.strip()) 
                 map_id = int(map_id_str.strip())
             except ValueError as ve:
-                print(f"⚠️ Error parsing coordinates: {ve}")
-                print(f"🔍 Raw coordinate strings: x='{x_str}', y='{y_str}', map_id='{map_id_str}'")
-                print(f"🔍 Full message: {message}")
+                logger.warning(f" Error parsing coordinates: {ve}")
+                logger.debug(f" Raw coordinate strings: x='{x_str}', y='{y_str}', map_id='{map_id_str}'")
+                logger.debug(f" Full message: {message}")
                 # Use fallback values
                 x, y, map_id = 0, 0, 0
             
@@ -910,13 +911,13 @@ class AIGameService(threading.Thread):
                 "map_id": map_id
             }
             
-            print(f"📷 Processing {message_type}: {screenshot_path}")
-            print(f"🎮 Game state: Position({x}, {y}), Direction={direction}, Map={map_id}")
+            logger.debug(f" Processing {message_type}: {screenshot_path}")
+            logger.info(f" Game state: Position({x}, {y}), Direction={direction}, Map={map_id}")
             self._process_ai_decision(screenshot_path, game_state)
             
         except Exception as e:
-            print(f"❌ Error handling screenshot data: {e}")
-            print(f"🔍 Raw message: {message}")
+            logger.error(f" Error handling screenshot data: {e}")
+            logger.debug(f" Raw message: {message}")
             self._send_chat_message("system", f"❌ Screenshot processing error: {str(e)}")
     
     def _process_ai_decision(self, screenshot_path: str, game_state: Dict[str, Any]):
@@ -939,8 +940,8 @@ class AIGameService(threading.Thread):
             
             # Get the previous screenshot (most recent in map) BEFORE registering the new one
             previous_path = None
-            print(f"🔍 Getting previous screenshot:")
-            print(f"   📊 Map size: {len(self.screenshot_map)}")
+            logger.debug(f" Getting previous screenshot:")
+            logger.debug(f"   Map size: {len(self.screenshot_map)}")
             
             if len(self.screenshot_map) > 0:
                 # Get the most recent screenshot as "previous"
@@ -950,31 +951,31 @@ class AIGameService(threading.Thread):
                     reverse=True
                 )
                 previous_path = sorted_screenshots[0][0]
-                print(f"   📸 Most recent screenshot (will be 'previous'): {os.path.basename(previous_path)}")
-                print(f"   ⏰ Creation time: {sorted_screenshots[0][1]}")
+                logger.debug(f"   Most recent screenshot (will be 'previous'): {os.path.basename(previous_path)}")
+                logger.debug(f"   Creation time: {sorted_screenshots[0][1]}")
             else:
-                print(f"   📭 No previous screenshots available")
+                logger.debug(f"   No previous screenshots available")
             
             # Now register the new screenshot as "current" and get normalized path
             current_path = self._register_new_screenshot(screenshot_path) or screenshot_path
             
             # Debug logging for screenshot map state
-            print(f"🔍 Screenshot Map Debug:")
-            print(f"   📊 Total screenshots tracked: {len(self.screenshot_map)}")
+            logger.debug(f" Screenshot Map Debug:")
+            logger.debug(f"   Total screenshots tracked: {len(self.screenshot_map)}")
             for filename, creation_time in sorted(self.screenshot_map.items(), key=lambda x: x[1], reverse=True):
-                print(f"   📸 {os.path.basename(filename)} → {creation_time}")
-            print(f"   🎯 Previous: {os.path.basename(previous_path) if previous_path else 'None'}")
-            print(f"   🎯 Current: {os.path.basename(current_path) if current_path else 'None'}")
-            print(f"   ✅ Same file? {previous_path == current_path}")
+                logger.debug(f"   {os.path.basename(filename)} → {creation_time}")
+            logger.debug(f"   Previous: {os.path.basename(previous_path) if previous_path else 'None'}")
+            logger.debug(f"   Current: {os.path.basename(current_path) if current_path else 'None'}")
+            logger.debug(f"   Same file? {previous_path == current_path}")
             
             # Display screenshots being sent to AI
             if previous_path and current_path and previous_path != current_path:
                 # Subsequent cycle: Show both previous and current screenshots
-                print(f"📤 Sending screenshot comparison: {os.path.basename(previous_path)} vs {os.path.basename(current_path)}")
+                logger.debug(f" Sending screenshot comparison: {os.path.basename(previous_path)} vs {os.path.basename(current_path)}")
                 self._send_screenshot_comparison_message(previous_path, current_path, game_state)
             else:
                 # Initial cycle or only one screenshot: Show current screenshot only
-                print(f"📤 Sending single screenshot: {os.path.basename(current_path) if current_path else 'None'}")
+                logger.debug(f" Sending single screenshot: {os.path.basename(current_path) if current_path else 'None'}")
                 self._send_single_screenshot_message(screenshot_path, game_state)
             
             # Load current configuration from database
@@ -1015,17 +1016,17 @@ class AIGameService(threading.Thread):
                 # Start autonomous gameplay with current screenshot and game state
                 success = self.agent_coordinator.start_autonomous_gameplay(current_path, game_state)
                 if success:
-                    print("🎮 Autonomous gameplay started - agents now in control")
+                    logger.info(" Autonomous gameplay started - agents now in control")
                     return  # Agents will handle everything from here
                 else:
-                    print("❌ Failed to start autonomous gameplay - falling back to manual mode")
+                    logger.error(" Failed to start autonomous gameplay - falling back to manual mode")
             else:
                 # Agents are already running autonomously
-                print("🎮 Autonomous gameplay already active")
+                logger.info(" Autonomous gameplay already active")
                 return
             
             # Fallback: If autonomous mode failed, continue with manual processing
-            print("⚠️ Using fallback manual processing")
+            logger.warning(" Using fallback manual processing")
             self._send_chat_message("system", "⚠️ Autonomous mode failed - using manual fallback")
             return  # Exit early - manual fallback not implemented in this refactor
             
@@ -1053,14 +1054,14 @@ class AIGameService(threading.Thread):
             is_error_response = not player_response.success
             
             if is_error_response:
-                print("🚫 Error response detected - not sending any button actions")
+                logger.warning("Error response detected - not sending any button actions")
                 actions_to_send = []
             else:
                 # Normal response - validate and process actions
                 if not actions_to_send:
                     # Only add fallback "A" for successful responses with missing actions
                     actions_to_send = ["A"]
-                    print("⚠️ No actions provided in successful response - using fallback 'A'")
+                    logger.warning(" No actions provided in successful response - using fallback 'A'")
                 
                 # Validate actions
                 valid_buttons = ["A", "B", "SELECT", "START", "RIGHT", "LEFT", "UP", "DOWN", "R", "L"]
@@ -1086,14 +1087,14 @@ class AIGameService(threading.Thread):
                 cooldown = config.get('decision_cooldown', 3)
                 total_delay = action_delay + cooldown
                 
-                print(f"⏳ Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
+                logger.debug(f" Waiting {total_delay:.2f}s (actions: {action_delay:.2f}s + cooldown: {cooldown}s)")
                 
                 # Use waiting time to collect background narration (optimization!)
                 self._wait_and_collect_narration(total_delay)
             else:
                 # Error case - just wait minimal cooldown and continue
                 cooldown = config.get('decision_cooldown', 3)
-                print(f"⏳ Error occurred - waiting minimal {cooldown}s cooldown before continuing")
+                logger.debug(f" Error occurred - waiting minimal {cooldown}s cooldown before continuing")
                 
                 # Even in error case, try to collect narration during wait
                 self._wait_and_collect_narration(cooldown)
@@ -1109,7 +1110,7 @@ class AIGameService(threading.Thread):
             self.decision_count += 1
             
         except Exception as e:
-            print(f"❌ AI decision error: {e}")
+            logger.error(f" AI decision error: {e}")
             traceback.print_exc()
             self._handle_ai_processing_error(e, screenshot_path, game_state)
     
@@ -1136,7 +1137,7 @@ class AIGameService(threading.Thread):
                     self.chat_messages.pop(0)
                     
         except Exception as e:
-            print(f"❌ Error sending single screenshot message: {e}")
+            logger.error(f" Error sending single screenshot message: {e}")
     
     def _send_screenshot_comparison_message(self, previous_path: str, current_path: str, game_state: Dict[str, Any]):
         """Send screenshot comparison message for subsequent cycles"""
@@ -1169,7 +1170,7 @@ class AIGameService(threading.Thread):
                 self.chat_messages.pop(0)
                 
         except Exception as e:
-            print(f"❌ Error sending screenshot comparison message: {e}")
+            logger.error(f" Error sending screenshot comparison message: {e}")
     
     def _call_ai_api_with_comparison(self, current_screenshot: str, previous_screenshot: Optional[str], 
                                    game_state: Dict[str, Any], config: Dict[str, Any], enhanced_context: str) -> Dict[str, Any]:
@@ -1196,7 +1197,7 @@ class AIGameService(threading.Thread):
                 )
                 
         except Exception as e:
-            print(f"❌ AI API call error: {e}")
+            logger.error(f" AI API call error: {e}")
             return {
                 "text": f"AI call failed: {str(e)}",
                 "actions": ["A"],
@@ -1210,7 +1211,7 @@ class AIGameService(threading.Thread):
             config = Configuration.get_config()
             return config.to_dict()
         except Exception as e:
-            print(f"❌ Error loading config: {e}")
+            logger.error(f" Error loading config: {e}")
             return None
     
     def _call_ai_api(self, screenshot_path: str, game_state: Dict[str, Any], config: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> Dict[str, Any]:
@@ -1221,18 +1222,18 @@ class AIGameService(threading.Thread):
                 self.llm_client = LLMClient(config)
             
             # Call LLM with error handling and timeout
-            print(f"🤖 Calling {config.get('llm_provider', 'unknown')} API...")
+            logger.info(f" Calling {config.get('llm_provider', 'unknown')} API...")
             start_time = time.time()
             
             result = self.llm_client.analyze_game_state(screenshot_path, game_state, recent_actions_text, before_after_analysis)
             
             elapsed = time.time() - start_time
-            print(f"⏱️ AI response received in {elapsed:.1f}s")
+            logger.debug(f" AI response received in {elapsed:.1f}s")
             
             return result
             
         except Exception as e:
-            print(f"❌ AI API call failed: {e}")
+            logger.error(f" AI API call failed: {e}")
             traceback.print_exc()
             
             # Intelligent fallback based on game state
@@ -1249,7 +1250,7 @@ class AIGameService(threading.Thread):
     def _request_screenshot(self):
         """Request a screenshot from mGBA with controlled filename"""
         if not self.mgba_connected or not self.client_socket:
-            print("⚠️ Cannot request screenshot: mGBA not connected")
+            logger.warning(" Cannot request screenshot: mGBA not connected")
             return False
         
         # Generate controlled filename
@@ -1265,16 +1266,16 @@ class AIGameService(threading.Thread):
                 message = f"request_screenshot_to||{filename}\n"
                 self.client_socket.send(message.encode('utf-8'))
                 self.client_socket.settimeout(0.1)  # Reset timeout
-                print(f"📸 Requested screenshot from mGBA: {filename}")
+                logger.debug(f" Requested screenshot from mGBA: {filename}")
                 return True
             except socket.timeout:
-                print(f"⚠️ Screenshot request timeout (attempt {attempt + 1}/{max_retries})")
+                logger.warning(f" Screenshot request timeout (attempt {attempt + 1}/{max_retries})")
             except Exception as e:
-                print(f"❌ Error requesting screenshot (attempt {attempt + 1}/{max_retries}): {e}")
+                logger.error(f" Error requesting screenshot (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(1)  # Wait before retry
         
-        print("❌ Failed to request screenshot after all retries")
+        logger.error(" Failed to request screenshot after all retries")
         self._send_chat_message("system", "❌ Failed to request screenshot - connection may be lost")
         return False
     
@@ -1289,14 +1290,14 @@ class AIGameService(threading.Thread):
                     return self.next_screenshot_path
                 time.sleep(0.1)
             
-            print("⚠️ Screenshot requested but file not found")
+            logger.warning(" Screenshot requested but file not found")
         
         return ""  # Return empty string on failure
     
     def _send_button_sequence(self, actions: list, durations: list = None):
         """Send button sequence to mGBA with optional custom durations"""
         if not self.mgba_connected or not self.client_socket:
-            print("⚠️ Cannot send sequence: mGBA not connected")
+            logger.warning(" Cannot send sequence: mGBA not connected")
             self._send_chat_message("system", "⚠️ Cannot send sequence: mGBA not connected")
             return False
         
@@ -1309,15 +1310,15 @@ class AIGameService(threading.Thread):
             
             # Check for empty actions list (error condition - don't press anything)
             if not actions:
-                print("🛑 Empty actions list - not pressing any buttons (error occurred)")
+                logger.info(" Empty actions list - not pressing any buttons (error occurred)")
                 self._send_chat_message("system", "🛑 No button actions sent due to error")
                 return True  # Return success without sending buttons
             
             # Validate actions
             valid_actions = [action for action in actions if action in button_map]
             if not valid_actions:
-                print(f"⚠️ No valid actions in: {actions}")
-                print("🛑 Not pressing any buttons due to invalid action list")
+                logger.warning(f" No valid actions in: {actions}")
+                logger.info(" Not pressing any buttons due to invalid action list")
                 self._send_chat_message("system", "🛑 No valid button actions - skipping button press")
                 return True  # Return success without sending buttons
             
@@ -1364,11 +1365,11 @@ class AIGameService(threading.Thread):
             return True
             
         except socket.timeout:
-            print("❌ Button sequence timeout")
+            logger.error(" Button sequence timeout")
             self._send_chat_message("system", "❌ Sequence sending timed out")
             return False
         except Exception as e:
-            print(f"❌ Error sending button sequence: {e}")
+            logger.error(f" Error sending button sequence: {e}")
             self._send_chat_message("system", f"❌ Error sending sequence: {str(e)}")
             return False
     
@@ -1392,19 +1393,9 @@ class AIGameService(threading.Thread):
             if len(self.chat_messages) > self.max_messages:
                 self.chat_messages.pop(0)
             
-            # Also try WebSocket if available
-            if self.channel_layer:
-                async_to_sync(self.channel_layer.group_send)(
-                    "ai_chat",
-                    {
-                        "type": "chat_message",
-                        "message_type": message_type,
-                        "content": content,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+            # Messages are accessed via polling API endpoint /api/chat-messages/
         except Exception as e:
-            print(f"⚠️ Error sending chat message: {e}")
+            logger.warning(f" Error sending chat message: {e}")
     
     def _send_screenshot_message(self, screenshot_path: str, game_state: Dict[str, Any]):
         """Send screenshot as a sent message in chat"""
@@ -1430,21 +1421,11 @@ class AIGameService(threading.Thread):
                 if len(self.chat_messages) > self.max_messages:
                     self.chat_messages.pop(0)
                 
-                # Also try WebSocket if available
-                if self.channel_layer:
-                    async_to_sync(self.channel_layer.group_send)(
-                        "ai_chat",
-                        {
-                            "type": "screenshot_message",
-                            "image_data": image_data,
-                            "game_state": position_text,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    )
+                # Messages accessed via polling endpoint
             else:
-                print(f"⚠️ Screenshot file not found: {screenshot_path}")
+                logger.warning(f" Screenshot file not found: {screenshot_path}")
         except Exception as e:
-            print(f"❌ Error sending screenshot message: {e}")
+            logger.error(f" Error sending screenshot message: {e}")
     
     def _send_ai_response_message(self, ai_response: Dict[str, Any]):
         """Send AI response as a received message in chat"""
@@ -1465,19 +1446,9 @@ class AIGameService(threading.Thread):
             if len(self.chat_messages) > self.max_messages:
                 self.chat_messages.pop(0)
             
-            # Also try WebSocket if available
-            if self.channel_layer:
-                async_to_sync(self.channel_layer.group_send)(
-                    "ai_chat",
-                    {
-                        "type": "ai_response_message",
-                        "text": ai_response.get("text", ""),
-                        "actions": ai_response.get("actions", []),
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+            # Messages accessed via polling endpoint
         except Exception as e:
-            print(f"❌ Error sending AI response message: {e}")
+            logger.error(f" Error sending AI response message: {e}")
     
     def _send_narration_message(self, narration_response: Dict[str, Any], tts_status: str = "Silent"):
         """Send narration message to chat for entertainment"""
@@ -1496,19 +1467,9 @@ class AIGameService(threading.Thread):
             if len(self.chat_messages) > self.max_messages:
                 self.chat_messages.pop(0)
             
-            # Also try WebSocket if available
-            if self.channel_layer:
-                async_to_sync(self.channel_layer.group_send)(
-                    "ai_chat",
-                    {
-                        "type": "narration_message",
-                        "narration": narration_response,
-                        "tts_status": tts_status,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                )
+            # Messages accessed via polling endpoint
         except Exception as e:
-            print(f"❌ Error sending narration message: {e}")
+            logger.error(f" Error sending narration message: {e}")
     
     def _initialize_notepad(self):
         """Initialize the notepad file with clear game objectives"""
@@ -1543,9 +1504,9 @@ class AIGameService(threading.Thread):
             updated_content = current_content + f"\n## Update {timestamp}\n{new_content}\n"
             with open(self.notepad_path, 'w') as f:
                 f.write(updated_content)
-            print("📝 Notepad updated")
+            logger.info(" Notepad updated")
         except Exception as e:
-            print(f"❌ Error updating notepad: {e}")
+            logger.error(f" Error updating notepad: {e}")
     
     def _get_recent_actions_text(self):
         """Get formatted text of recent actions with reasoning"""
@@ -1625,7 +1586,7 @@ class AIGameService(threading.Thread):
                 return tbl_directions[direction_value]
             
             # Log unknown numeric values for debugging
-            print(f"⚠️ Unknown numeric direction value: {direction_value} (not standard 1-4 or TBL 121-124)")
+            logger.warning(f" Unknown numeric direction value: {direction_value} (not standard 1-4 or TBL 121-124)")
             return "UNKNOWN"
         
         # Normalize to uppercase and validate known directions
@@ -1635,7 +1596,7 @@ class AIGameService(threading.Thread):
         if direction in valid_directions:
             return direction
         else:
-            print(f"⚠️ Unknown direction value: '{direction_str}' -> normalized to 'UNKNOWN'")
+            logger.warning(f" Unknown direction value: '{direction_str}' -> normalized to 'UNKNOWN'")
             return "UNKNOWN"
     
     def _get_intelligent_fallback_action(self, game_state: Dict[str, Any]) -> str:
@@ -1658,7 +1619,7 @@ class AIGameService(threading.Thread):
                     else:
                         # If direction is UNKNOWN, start with UP
                         next_direction = "UP"
-                    print(f"⚠️ Stuck detected (direction: {direction_raw}), trying: {next_direction}")
+                    logger.warning(f" Stuck detected (direction: {direction_raw}), trying: {next_direction}")
                     return next_direction
             else:
                 self._stuck_count = 0
@@ -1686,8 +1647,8 @@ class AIGameService(threading.Thread):
         error_msg = str(error)
         
         # Log the error with context
-        print(f"❌ AI Processing Error: {error_msg}")
-        print(f"📍 Context: Screenshot={screenshot_path}, GameState={game_state}")
+        logger.error(f" AI Processing Error: {error_msg}")
+        logger.debug(f"Context: Screenshot={screenshot_path}, GameState={game_state}")
         
         # Send error message to chat
         self._send_chat_message("system", f"⚠️ AI processing error: {error_msg}")
@@ -1726,7 +1687,7 @@ class AIGameService(threading.Thread):
             self._learn_strategy_from_actions(ai_text, actions_taken, game_state)
             
         except Exception as e:
-            print(f"⚠️ Memory system update error: {e}")
+            logger.warning(f" Memory system update error: {e}")
     
     def _discover_objectives_from_ai_text(self, ai_text: str, location: str):
         """Analyze AI text for new objective discovery"""
@@ -1773,7 +1734,7 @@ class AIGameService(threading.Thread):
                         )
                     
                     if objective_id:
-                        print(f"🎯 Discovered objective: {full_objective}")
+                        logger.debug(f" Discovered objective: {full_objective}")
                         self._send_chat_message("system", f"🧠 Discovered new objective: {full_objective}")
                         break  # Only discover one objective per AI response
     
@@ -1796,7 +1757,7 @@ class AIGameService(threading.Thread):
                             if MEMORY_SERVICE_AVAILABLE and 'complete_objective' in _memory_service_functions:
                                 success = _memory_service_functions['complete_objective'](objective.id, location)
                             if success:
-                                print(f"✅ Completed objective: {objective.description}")
+                                logger.info(f" Completed objective: {objective.description}")
                                 self._send_chat_message("system", f"🏆 Achievement unlocked: {objective.description}")
                                 break
     
@@ -1826,7 +1787,7 @@ class AIGameService(threading.Thread):
             )
         
         if strategy_id and success:
-            print(f"🧠 Learned strategy: {situation_context} → {actions}")
+            logger.info(f" Learned strategy: {situation_context} → {actions}")
     
     def _get_situation_context(self, ai_text: str, game_state: Dict[str, Any]) -> str:
         """Extract situation context from AI text and game state"""
@@ -1876,7 +1837,7 @@ class AIGameService(threading.Thread):
         if len(self.position_history) >= 3:
             recent_positions = [(p['x'], p['y'], p['map_id']) for p in self.position_history[-3:]]
             if len(set(recent_positions)) == 1:  # All recent positions are the same
-                print(f"⚠️ Movement stuck detected at position ({x}, {y}) on map {map_id}")
+                logger.warning(f" Movement stuck detected at position ({x}, {y}) on map {map_id}")
     
     def _get_movement_analysis_text(self) -> str:
         """Generate movement analysis text for LLM context"""
@@ -1941,10 +1902,10 @@ class AIGameService(threading.Thread):
                     encoded = base64.b64encode(image_data).decode('utf-8')
                     return f"data:image/png;base64,{encoded}"
             else:
-                print(f"⚠️ Screenshot file not found: {screenshot_path}")
+                logger.warning(f" Screenshot file not found: {screenshot_path}")
                 return ""
         except Exception as e:
-            print(f"⚠️ Error encoding screenshot: {e}")
+            logger.warning(f" Error encoding screenshot: {e}")
             return ""
     
     def _cleanup(self):

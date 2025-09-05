@@ -13,6 +13,9 @@ from pathlib import Path
 import PIL.Image
 from PIL import ImageEnhance
 
+from core.logging_config import get_logger
+logger = get_logger(__name__)
+
 # Memory service will be imported when Django is ready
 MEMORY_SERVICE_AVAILABLE = False
 
@@ -56,15 +59,15 @@ class LLMClient:
                 from core.memory_service import get_global_memory_system
                 self.memory_system = get_global_memory_system()
                 if self.memory_system:
-                    print("🧠 LLM Client: Connected to global memory system")
+                    logger.info(" LLM Client: Connected to global memory system")
                 else:
-                    print("⚠️ LLM Client: Global memory system unavailable")
+                    logger.warning(" LLM Client: Global memory system unavailable")
                 global MEMORY_SERVICE_AVAILABLE
                 MEMORY_SERVICE_AVAILABLE = True
             else:
-                print("⚠️ LLM Client: Django apps not ready yet, memory system unavailable")
+                logger.warning(" LLM Client: Django apps not ready yet, memory system unavailable")
         except Exception as e:
-            print(f"⚠️ LLM Client: Memory system initialization failed: {e}")
+            logger.warning(f" LLM Client: Memory system initialization failed: {e}")
             self.memory_system = None
     
     def _init_clients(self):
@@ -78,7 +81,7 @@ class LLMClient:
                     self.google_client = genai
                 else:
                     self.google_client = None
-                    print("⚠️ Google API key not configured")
+                    logger.warning(" Google API key not configured")
             
             if self.provider == 'openai':
                 from openai import OpenAI
@@ -87,14 +90,14 @@ class LLMClient:
                     self.openai_client = OpenAI(api_key=api_key)
                 else:
                     self.openai_client = None
-                    print("⚠️ OpenAI API key not configured")
+                    logger.warning(" OpenAI API key not configured")
                     
         except ImportError as e:
-            print(f"⚠️ LLM provider import error: {e}")
+            logger.warning(f" LLM provider import error: {e}")
     
     def reset_session(self):
         """Reset the LLM session by clearing conversation history and reinitializing clients"""
-        print("🔄 Resetting LLM session...")
+        logger.info(" Resetting LLM session...")
         
         # Clear conversation history
         self.conversation_history = []
@@ -105,27 +108,27 @@ class LLMClient:
             if self.notepad_path.exists():
                 with open(self.notepad_path, 'w') as f:
                     f.write("Game session reset. Starting fresh.\n")
-                print("📝 Notepad cleared")
+                logger.info(" Notepad cleared")
         except Exception as e:
-            print(f"⚠️ Could not clear notepad: {e}")
+            logger.warning(f" Could not clear notepad: {e}")
         
         # Reset memory system if available
         if self.memory_system:
             try:
                 # Reset memory system stats and clear recent context
                 stats = self.memory_system.get_stats()
-                print(f"🧠 Memory system before reset: {stats}")
+                logger.info(f" Memory system before reset: {stats}")
                 
                 # Note: We don't completely wipe memory as learned strategies should persist
                 # But we can clear recent context that might be game-session specific
-                print("🧠 Memory system session context cleared")
+                logger.info(" Memory system session context cleared")
             except Exception as e:
-                print(f"⚠️ Memory system reset error: {e}")
+                logger.warning(f" Memory system reset error: {e}")
         
         # Reinitialize LLM clients to ensure fresh state
         self._init_clients()
         
-        print("✅ LLM session reset completed - fresh start!")
+        logger.info(" LLM session reset completed - fresh start!")
     
     def _load_prompt_template(self):
         """Load prompt template from file with hot-reload capability"""
@@ -136,13 +139,13 @@ class LLMClient:
                     with open(self.prompt_template_path, 'r') as f:
                         self.prompt_template = f.read()
                     self.template_last_modified = current_modified
-                    print(f"📝 Loaded prompt template from {self.prompt_template_path}")
+                    logger.info(f" Loaded prompt template from {self.prompt_template_path}")
             else:
                 # Fallback to a minimal template if file doesn't exist
                 self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
-                print(f"⚠️ Prompt template file not found at {self.prompt_template_path}, using fallback")
+                logger.warning(f" Prompt template file not found at {self.prompt_template_path}, using fallback")
         except Exception as e:
-            print(f"❌ Error loading prompt template: {e}")
+            logger.error(f" Error loading prompt template: {e}")
             self.prompt_template = "You are an AI playing Pokémon. Look at the screenshot and choose a button to press.\n\n{spatial_context}\n\n{recent_actions}\n\n{notepad_content}"
     
     def _wait_for_screenshot(self, screenshot_path: str, max_wait_seconds: int = 5, check_interval: float = 0.2) -> bool:
@@ -162,27 +165,27 @@ class LLMClient:
         total_waited = 0.0
         min_file_size = 1000  # Minimum reasonable size for a screenshot
         
-        print(f"📸 Waiting for screenshot: {os.path.basename(screenshot_path)}")
+        logger.debug(f" Waiting for screenshot: {os.path.basename(screenshot_path)}")
         
         while total_waited < max_wait_seconds:
             if os.path.exists(screenshot_path):
                 try:
                     file_size = os.path.getsize(screenshot_path)
                     if file_size >= min_file_size:
-                        print(f"✅ Screenshot ready: {os.path.basename(screenshot_path)} ({file_size} bytes)")
+                        logger.info(f" Screenshot ready: {os.path.basename(screenshot_path)} ({file_size} bytes)")
                         return True
                     else:
-                        print(f"⏳ Screenshot file too small ({file_size} bytes), waiting...")
+                        logger.debug(f" Screenshot file too small ({file_size} bytes), waiting...")
                 except OSError:
                     # File might be in the process of being written
-                    print(f"⏳ Screenshot file being written, waiting...")
+                    logger.debug(f" Screenshot file being written, waiting...")
             else:
-                print(f"⏳ Screenshot file doesn't exist yet, waiting...")
+                logger.debug(f" Screenshot file doesn't exist yet, waiting...")
             
             time.sleep(check_interval)
             total_waited += check_interval
         
-        print(f"⚠️ Screenshot not ready after {max_wait_seconds}s: {os.path.basename(screenshot_path)}")
+        logger.warning(f" Screenshot not ready after {max_wait_seconds}s: {os.path.basename(screenshot_path)}")
         return False
     
     def analyze_game_state(self, screenshot_path: str, game_state: Dict[str, Any], recent_actions_text: str = "", before_after_analysis: str = "") -> Dict[str, Any]:
@@ -220,7 +223,7 @@ class LLMClient:
                 return self._fallback_response()
                 
         except Exception as e:
-            print(f"❌ LLM analysis error: {e}")
+            logger.error(f" LLM analysis error: {e}")
             traceback.print_exc()
             return {
                 "text": f"⚠️ An error occurred: AI analysis failed",
@@ -257,7 +260,7 @@ class LLMClient:
             # Check if previous screenshot exists (no wait needed for previous screenshot)
             if not os.path.exists(previous_screenshot):
                 # Fallback to single screenshot analysis
-                print(f"📸 Previous screenshot not found, falling back to single screenshot analysis")
+                logger.debug(f" Previous screenshot not found, falling back to single screenshot analysis")
                 return self.analyze_game_state(current_screenshot, game_state, recent_actions_text)
             
             # Create enhanced game context for comparison
@@ -272,7 +275,7 @@ class LLMClient:
                 return self._fallback_response( "Unsupported provider for comparison")
                 
         except Exception as e:
-            print(f"❌ LLM comparison analysis error: {e}")
+            logger.error(f" LLM comparison analysis error: {e}")
             traceback.print_exc()
             return {
                 "text": f"⚠️ An error occurred: AI comparison analysis failed",
@@ -328,7 +331,7 @@ Map ID: {map_id}
             )
             return context
         except KeyError as e:
-            print(f"❌ Template variable error: {e}")
+            logger.error(f" Template variable error: {e}")
             # Return minimal context if template has issues
             return f"Compare these two screenshots and choose your next action.\n\nPosition: ({x}, {y}) facing {direction}"
     
@@ -402,7 +405,7 @@ CURRENT SCREENSHOT (after your last actions):
             durations = []
             structured_analysis = {}
             
-            print(f"🔍 Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
+            logger.debug(f" Parsing comparison response: {len(response.candidates) if response.candidates else 0} candidates")
             
             # First pass: Extract only text content to check if response is valid
             if response.candidates:
@@ -443,7 +446,7 @@ CURRENT SCREENSHOT (after your last actions):
                     response_json = f"Failed to serialize response: {str(json_error)}"
                 
                 error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
-                print(f"⚠️ Empty response text from LLM - treating as error and ignoring all function calls")
+                logger.warning(f" Empty response text from LLM - treating as error and ignoring all function calls")
                 
                 return {
                     "text": "⚠️ An error occurred: LLM provided empty response",
@@ -506,11 +509,11 @@ CURRENT SCREENSHOT (after your last actions):
                                             except:
                                                 durations = []  # Will use defaults
                                     
-                                    print(f"🎮 Extracted from function call - Actions: {actions}, Durations: {durations}")
+                                    logger.info(f" Extracted from function call - Actions: {actions}, Durations: {durations}")
                             elif part.function_call.name == "discover_objective":
                                 # Handle objective discovery
                                 args = part.function_call.args
-                                print(f"🎯 Objective discovery function call received")
+                                logger.debug(f" Objective discovery function call received")
                                 
                                 # Extract objective data from Google's format
                                 objective_data = {}
@@ -528,7 +531,7 @@ CURRENT SCREENSHOT (after your last actions):
                             elif part.function_call.name == "analyze_game_situation":
                                 # Handle structured analysis
                                 args = part.function_call.args
-                                print(f"📋 Structured analysis function call received")
+                                logger.warning(f" Structured analysis function call received")
                                 
                                 # Extract structured fields from Google's format
                                 if hasattr(args, 'fields'):
@@ -548,7 +551,7 @@ CURRENT SCREENSHOT (after your last actions):
                                         if field in args:
                                             structured_analysis[field] = args[field]
                                 
-                                print(f"📊 Structured analysis extracted: {list(structured_analysis.keys())}")
+                                logger.debug(f" Structured analysis extracted: {list(structured_analysis.keys())}")
             
             # Handle notepad updates if requested
             
@@ -583,7 +586,7 @@ CURRENT SCREENSHOT (after your last actions):
                     response_json = f"Failed to serialize response: {str(json_error)}"
                 
                 error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
-                print(f"⚠️ Empty response text from LLM - treating as error and ignoring function calls")
+                logger.warning(f" Empty response text from LLM - treating as error and ignoring function calls")
                 print(f"🚫 Ignoring extracted actions: {actions}")
                 print(f"🚫 Ignoring extracted durations: {durations}")
                 
@@ -607,12 +610,12 @@ CURRENT SCREENSHOT (after your last actions):
             # Add structured analysis fields if available
             if structured_analysis:
                 response_dict.update(structured_analysis)
-                print(f"📊 Including structured analysis in response: {list(structured_analysis.keys())}")
+                logger.debug(f" Including structured analysis in response: {list(structured_analysis.keys())}")
             
             return response_dict
                 
         except Exception as e:
-            print(f"❌ Google API comparison error: {e}")
+            logger.error(f" Google API comparison error: {e}")
             traceback.print_exc()
             return self._fallback_response( f"Google API error: {str(e)}")
     
@@ -742,7 +745,7 @@ CURRENT SCREENSHOT (after your last actions):
                 before_after_analysis=before_after_analysis
             )
         except KeyError as e:
-            print(f"⚠️ Missing template variable {e}, using fallback context")
+            logger.warning(f" Missing template variable {e}, using fallback context")
             # Fallback context if template substitution fails
             context = f"""You are an AI playing Pokémon, you are the character with the white hair. The name is GEMINI. Look at the screenshot(s) provided and choose button(s) to press.
 
@@ -820,7 +823,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             prompt_words = len(prompt.split())
             prompt_chars = len(prompt)
             estimated_tokens = prompt_words * 1.3  # Rough estimation: 1 token ≈ 0.75 words
-            print(f"📊 Prompt Stats: {prompt_chars} chars, {prompt_words} words, ~{estimated_tokens:.0f} tokens (estimated)")
+            logger.debug(f" Prompt Stats: {prompt_chars} chars, {prompt_words} words, ~{estimated_tokens:.0f} tokens (estimated)")
 
             # Define tools (including both press_button and update_notepad)
             tools = self._get_google_tools()
@@ -840,7 +843,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             durations = []
             structured_analysis = {}
             
-            print(f"🔍 Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
+            logger.debug(f" Parsing response: {len(response.candidates) if response.candidates else 0} candidates")
             
             # First pass: Extract only text content to check if response is valid
             if response.candidates:
@@ -881,7 +884,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                     response_json = f"Failed to serialize response: {str(json_error)}"
                 
                 error_msg = f"LLM provided no reasoning text. System is malfunctioning - ignoring all function calls.\n\nFull Response JSON:\n{response_json}"
-                print(f"⚠️ Empty response text from LLM - treating as error and ignoring all function calls")
+                logger.warning(f" Empty response text from LLM - treating as error and ignoring all function calls")
                 
                 return {
                     "text": "⚠️ An error occurred: LLM provided empty response",
@@ -1003,7 +1006,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                             elif part.function_call.name == "discover_objective":
                                 # Handle objective discovery in single screenshot method
                                 args = part.function_call.args
-                                print(f"🎯 Objective discovery function call received (single)")
+                                logger.debug(f" Objective discovery function call received (single)")
                                 
                                 # Extract objective data from Google's format
                                 objective_data = {}
@@ -1020,7 +1023,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                             elif part.function_call.name == "analyze_game_situation":
                                 # Handle structured analysis in single screenshot method
                                 args = part.function_call.args
-                                print(f"📋 Structured analysis function call received (single)")
+                                logger.warning(f" Structured analysis function call received (single)")
                                 
                                 # Extract structured fields from Google's format
                                 if hasattr(args, 'fields'):
@@ -1040,7 +1043,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
                                         if field in args:
                                             structured_analysis[field] = args[field]
                                 
-                                print(f"📊 Structured analysis extracted (single): {list(structured_analysis.keys())}")
+                                logger.debug(f" Structured analysis extracted (single): {list(structured_analysis.keys())}")
             
             # Handle notepad update
             
@@ -1056,14 +1059,14 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             # Add structured analysis fields if available
             if structured_analysis:
                 response_dict.update(structured_analysis)
-                print(f"📊 Including structured analysis in single response: {list(structured_analysis.keys())}")
+                logger.debug(f" Including structured analysis in single response: {list(structured_analysis.keys())}")
             
             return response_dict
             
         except Exception as e:
-            print(f"❌ Google API error: {e}")
+            logger.error(f" Google API error: {e}")
             import traceback
-            print(f"🔍 Full error details: {traceback.format_exc()}")
+            logger.debug(f" Full error details: {traceback.format_exc()}")
             return self._fallback_response( str(e))
     
     def _call_openai_api(self, screenshot_path: str, context: str) -> Dict[str, Any]:
@@ -1170,39 +1173,39 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             if message.tool_calls:
                 for tool_call in message.tool_calls:
                     if tool_call.function.name == "press_button_sequence":
-                        print(f"🔧 OpenAI tool call: press_button_sequence")
+                        logger.debug(f" OpenAI tool call: press_button_sequence")
                         args = json.loads(tool_call.function.arguments)
-                        print(f"🔧 Args: {args}")
+                        logger.debug(f" Args: {args}")
                         if 'actions' in args:
                             actions = args['actions']
-                            print(f"✅ Extracted actions: {actions}")
+                            logger.info(f" Extracted actions: {actions}")
                             
                             # Extract durations if provided
                             if 'durations' in args:
                                 durations = args['durations']
-                                print(f"✅ Extracted durations: {durations}")
+                                logger.info(f" Extracted durations: {durations}")
                             else:
                                 durations = []
                         else:
-                            print(f"⚠️ No 'actions' parameter found: {args}")
+                            logger.warning(f" No 'actions' parameter found: {args}")
                     # Legacy support
                     elif tool_call.function.name == "press_button":
-                        print(f"🔧 OpenAI legacy tool call: press_button")
+                        logger.debug(f" OpenAI legacy tool call: press_button")
                         args = json.loads(tool_call.function.arguments)
-                        print(f"🔧 Args: {args}")
+                        logger.debug(f" Args: {args}")
                         if 'button' in args:
                             button = str(args['button'])
                             actions = [button]
                             durations = []
-                            print(f"✅ Extracted legacy button: {button}")
+                            logger.info(f" Extracted legacy button: {button}")
                         elif 'actions' in args:
                             actions = args['actions']
                             durations = []
-                            print(f"✅ Extracted legacy actions: {actions}")
+                            logger.info(f" Extracted legacy actions: {actions}")
                         else:
-                            print(f"⚠️ No 'button' or 'actions' parameter found: {args}")
+                            logger.warning(f" No 'button' or 'actions' parameter found: {args}")
             else:
-                print(f"⚠️ No tool calls found, using default: {actions}")
+                logger.warning(f" No tool calls found, using default: {actions}")
             
             return {
                 "text": response_text,
@@ -1213,7 +1216,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             }
             
         except Exception as e:
-            print(f"❌ OpenAI API error: {e}")
+            logger.error(f" OpenAI API error: {e}")
             return self._fallback_response( str(e))
     
     def _enhance_image(self, image_path: str) -> PIL.Image.Image:
@@ -1243,7 +1246,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             return final_image
             
         except Exception as e:
-            print(f"⚠️ Image enhancement failed: {e}")
+            logger.warning(f" Image enhancement failed: {e}")
             # Return original image if enhancement fails
             return PIL.Image.open(image_path)
     
@@ -1444,7 +1447,7 @@ Duration is in frames (60fps). Default=2 frames if not specified.
             return "\n".join(memory_lines)
             
         except Exception as e:
-            print(f"⚠️ LLMClient: Memory context optimization failed: {e}")
+            logger.warning(f" LLMClient: Memory context optimization failed: {e}")
             return ""
     
     def _fallback_response(self, error: str = None) -> Dict[str, Any]:

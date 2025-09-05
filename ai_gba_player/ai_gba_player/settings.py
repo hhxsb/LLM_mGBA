@@ -44,12 +44,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # Local apps
-    'core',        # Memory system initialization only
+    'core',        # Memory system (Graphiti integration)
     'dashboard',   # Primary app - AI service, models, views
-    # Disabled unused apps:
-    # 'api',         # Legacy REST API - superseded by simple_views
-    # 'channels',    # WebSocket support - using polling instead
-    # 'rest_framework',  # REST API framework - not needed
 ]
 
 MIDDLEWARE = [
@@ -81,15 +77,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'ai_gba_player.wsgi.application'
 
-# Channels configuration for WebSocket support (temporarily disabled)
-# ASGI_APPLICATION = 'ai_gba_player.asgi.application'
-
-# Channel layers for WebSocket communication (temporarily disabled)
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels.layers.InMemoryChannelLayer'
-#     }
-# }
+# Using polling-based communication instead of WebSockets for simplicity
 
 
 # Database
@@ -148,15 +136,7 @@ STATICFILES_DIRS = [
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# Django Rest Framework configuration (temporarily disabled)
-# REST_FRAMEWORK = {
-#     'DEFAULT_PERMISSION_CLASSES': [
-#         'rest_framework.permissions.AllowAny',
-#     ],
-#     'DEFAULT_RENDERER_CLASSES': [
-#         'rest_framework.renderers.JSONRenderer',
-#     ],
-# }
+# Using simple Django views instead of REST framework
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
