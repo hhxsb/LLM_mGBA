@@ -233,9 +233,9 @@ class GraphitiMemorySystem:
             self.logger.error(f"❌ Error loading existing knowledge: {e}")
     
     def discover_objective(self, description: str, location: Optional[str] = None, 
-                          category: str = "general", priority: int = 5) -> str:
+                          category: str = "general", priority: int = 5, context: Dict[str, Any] = None) -> str:
         """
-        Discover a new objective based on AI observation.
+        Discover a new objective with rich context and temporal tracking.
         Returns the objective ID.
         """
         if not self.graphiti:
@@ -243,6 +243,7 @@ class GraphitiMemorySystem:
         
         objective_id = f"obj_{int(time.time())}_{hash(description) % 10000}"
         current_time = time.time()
+        context = context or {}
         
         objective = GameObjective(
             id=objective_id,
@@ -254,28 +255,54 @@ class GraphitiMemorySystem:
         )
         
         try:
-            # Add to Graphiti knowledge graph
-            episode_data = {
-                "entity_type": "Objective",
-                "entity_id": objective_id,
-                "description": description,
-                "discovered_at": current_time,
-                "location_discovered": location or "unknown",
-                "category": category,
-                "priority": priority,
-                "status": "active"
-            }
+            # Enhanced episode with temporal context and relationships
+            entities = [
+                {
+                    "entity_type": "Objective",
+                    "entity_id": objective_id,
+                    "description": description,
+                    "discovered_at": current_time,
+                    "location_discovered": location or "unknown",
+                    "category": category,
+                    "priority": priority,
+                    "status": "active",
+                    "game_session": context.get("session_id", "unknown"),
+                    "player_level": context.get("player_level", 0),
+                    "game_time": context.get("game_time", 0)
+                }
+            ]
+            
+            # Add location entity if provided
+            if location:
+                entities.append({
+                    "entity_type": "Location",
+                    "entity_id": f"loc_{location.replace(' ', '_').lower()}",
+                    "name": location,
+                    "first_visited": current_time,
+                    "visit_count": context.get("visit_count", 1)
+                })
+            
+            # Add relationships if context provided
+            relationships = []
+            if location:
+                relationships.append({
+                    "from": objective_id,
+                    "to": f"loc_{location.replace(' ', '_').lower()}",
+                    "relation": "discovered_at",
+                    "strength": priority / 10.0
+                })
             
             self.graphiti.add_episode(
                 episode_id=f"discovery_{objective_id}",
-                entities=[episode_data],
-                content=f"Discovered new objective: {description}"
+                entities=entities,
+                relationships=relationships,
+                content=f"Discovered new objective: {description} at {location or 'unknown location'}. Priority: {priority}/10. Context: {context}"
             )
             
             # Add to local cache
             self.active_objectives[objective_id] = objective
             
-            self.logger.info(f"🎯 Discovered objective: {description}")
+            self.logger.info(f"🎯 Discovered objective: {description} (temporal context: {context})")
             return objective_id
             
         except Exception as e:
@@ -331,7 +358,7 @@ class GraphitiMemorySystem:
     def learn_strategy(self, situation: str, button_sequence: List[str], 
                       success: bool, context: Optional[Dict[str, Any]] = None) -> str:
         """
-        Learn a new strategy or update an existing one.
+        Learn a new strategy with enhanced temporal tracking and relationships.
         Returns the strategy ID.
         """
         if not self.graphiti:
@@ -339,6 +366,7 @@ class GraphitiMemorySystem:
         
         strategy_id = f"strat_{hash(situation) % 10000}"
         current_time = time.time()
+        context = context or {}
         
         if strategy_id in self.learned_strategies:
             # Update existing strategy
@@ -360,30 +388,75 @@ class GraphitiMemorySystem:
                 success_rate=1.0 if success else 0.0,
                 times_used=1,
                 last_used=current_time,
-                context=context or {}
+                context=context
             )
             self.learned_strategies[strategy_id] = strategy
         
         try:
-            # Update in Graphiti
-            episode_data = {
-                "entity_type": "Strategy",
-                "entity_id": strategy_id,
-                "situation_description": situation,
-                "button_sequence": json.dumps(button_sequence),
-                "success_rate": strategy.success_rate,
-                "times_used": strategy.times_used,
-                "last_used": current_time,
-                "success": success
-            }
+            # Enhanced episode with relationships and temporal context
+            entities = [
+                {
+                    "entity_type": "Strategy",
+                    "entity_id": strategy_id,
+                    "situation_description": situation,
+                    "button_sequence": json.dumps(button_sequence),
+                    "success_rate": strategy.success_rate,
+                    "times_used": strategy.times_used,
+                    "last_used": current_time,
+                    "success": success,
+                    "location": context.get("location", "unknown"),
+                    "game_state": context.get("game_state", "unknown"),
+                    "session_id": context.get("session_id", "unknown")
+                }
+            ]
+            
+            # Add location entity if available
+            location = context.get("location")
+            if location:
+                entities.append({
+                    "entity_type": "Location",
+                    "entity_id": f"loc_{location.replace(' ', '_').lower()}",
+                    "name": location,
+                    "strategy_success_rate": strategy.success_rate
+                })
+            
+            # Add game state entity for pattern recognition
+            game_state = context.get("game_state")
+            if game_state:
+                entities.append({
+                    "entity_type": "GameState",
+                    "entity_id": f"state_{hash(game_state) % 10000}",
+                    "description": game_state,
+                    "timestamp": current_time
+                })
+            
+            # Build relationships
+            relationships = []
+            if location:
+                relationships.append({
+                    "from": strategy_id,
+                    "to": f"loc_{location.replace(' ', '_').lower()}",
+                    "relation": "used_at",
+                    "strength": strategy.success_rate,
+                    "temporal_validity": [current_time, None]  # Valid from now
+                })
+            
+            if game_state:
+                relationships.append({
+                    "from": strategy_id,
+                    "to": f"state_{hash(game_state) % 10000}",
+                    "relation": "effective_in",
+                    "strength": 1.0 if success else 0.0
+                })
             
             self.graphiti.add_episode(
                 episode_id=f"strategy_{strategy_id}_{int(current_time)}",
-                entities=[episode_data],
-                content=f"{'Successful' if success else 'Failed'} strategy for: {situation}"
+                entities=entities,
+                relationships=relationships,
+                content=f"{'Successful' if success else 'Failed'} strategy for: {situation}. Buttons: {button_sequence}. Location: {location or 'unknown'}. Success rate now: {strategy.success_rate:.2%}"
             )
             
-            self.logger.info(f"🧠 {'Updated' if strategy.times_used > 1 else 'Learned'} strategy: {situation}")
+            self.logger.info(f"🧠 {'Updated' if strategy.times_used > 1 else 'Learned'} strategy: {situation} (success: {strategy.success_rate:.1%})")
             return strategy_id
             
         except Exception as e:
@@ -417,30 +490,35 @@ class GraphitiMemorySystem:
         
         return relevant_strategies[:3]  # Top 3 strategies
     
-    def get_memory_context(self, current_situation: str = "", max_objectives: int = 3) -> Dict[str, Any]:
+    def get_memory_context(self, current_situation: str = "", max_objectives: int = 3, 
+                          location: str = None) -> Dict[str, Any]:
         """
-        Get memory context for the LLM including objectives, achievements, and strategies.
+        Get enhanced memory context using semantic search and temporal analysis.
         """
         context = {
             "current_objectives": [],
             "recent_achievements": [],
             "relevant_strategies": [],
+            "location_insights": {},
+            "pokemon_knowledge": {},
+            "temporal_patterns": {},
             "discovery_suggestions": []
         }
         
-        # Current objectives
+        # Current objectives with enhanced context
         objectives = self.get_current_objectives(max_count=max_objectives)
         context["current_objectives"] = [
             {
                 "description": obj.description,
                 "priority": obj.priority,
                 "category": obj.category,
-                "location_discovered": obj.location_discovered
+                "location_discovered": obj.location_discovered,
+                "time_since_discovery": self._describe_age(time.time() - obj.discovered_at)
             }
             for obj in objectives
         ]
         
-        # Recent achievements (last 5)
+        # Recent achievements with temporal context
         recent_achievements = sorted(
             self.completed_achievements.values(),
             key=lambda x: x.completed_at,
@@ -451,62 +529,462 @@ class GraphitiMemorySystem:
             {
                 "title": ach.title,
                 "completed_at": datetime.fromtimestamp(ach.completed_at).strftime("%Y-%m-%d %H:%M"),
-                "location": ach.location_completed
+                "location": ach.location_completed,
+                "time_ago": self._describe_age(time.time() - ach.completed_at)
             }
             for ach in recent_achievements
         ]
         
-        # Relevant strategies for current situation
+        # Enhanced strategy retrieval with semantic search
         if current_situation:
-            strategies = self.get_relevant_strategies(current_situation)
-            context["relevant_strategies"] = [
-                {
-                    "situation": strat.situation_description,
-                    "buttons": strat.button_sequence,
-                    "success_rate": f"{strat.success_rate:.1%}",
-                    "times_used": strat.times_used
-                }
-                for strat in strategies
-            ]
+            # Use semantic search if Graphiti is available
+            if self.graphiti:
+                try:
+                    # Query for semantically similar situations
+                    strategy_query = f"successful strategies for situation similar to: {current_situation}"
+                    semantic_results = self.query_knowledge(strategy_query, include_temporal=True)
+                    
+                    # Combine with local strategy matching
+                    local_strategies = self.get_relevant_strategies(current_situation)
+                    
+                    # Process and merge results
+                    context["relevant_strategies"] = self._merge_strategy_results(
+                        local_strategies, semantic_results.get("results", [])
+                    )
+                    
+                    # Add temporal patterns from semantic search
+                    context["temporal_patterns"] = semantic_results.get("temporal_analysis", {})
+                    
+                except Exception as e:
+                    self.logger.debug(f"Semantic search failed, using local strategies: {e}")
+                    context["relevant_strategies"] = self._format_local_strategies(
+                        self.get_relevant_strategies(current_situation)
+                    )
+            else:
+                context["relevant_strategies"] = self._format_local_strategies(
+                    self.get_relevant_strategies(current_situation)
+                )
         
-        # Suggestions for new discoveries
-        context["discovery_suggestions"] = [
-            "Look for NPCs to talk to - they often provide objectives",
-            "Check for items or interactable objects",
-            "Notice location names and landmarks for navigation",
-            "Observe battle outcomes and Pokemon interactions"
-        ]
+        # Location-specific insights
+        if location and self.graphiti:
+            try:
+                location_query = f"information about location {location} including Pokemon and strategies"
+                location_results = self.query_knowledge(location_query, include_temporal=False)
+                context["location_insights"] = self._extract_location_insights(location_results)
+            except Exception as e:
+                self.logger.debug(f"Location insights failed: {e}")
+        
+        # Pokemon knowledge for current area
+        if self.graphiti:
+            try:
+                pokemon_query = f"Pokemon encounters and battle strategies {f'at {location}' if location else ''}"
+                pokemon_results = self.query_knowledge(pokemon_query, include_temporal=True)
+                context["pokemon_knowledge"] = self._extract_pokemon_insights(pokemon_results)
+            except Exception as e:
+                self.logger.debug(f"Pokemon knowledge query failed: {e}")
+        
+        # Enhanced discovery suggestions based on context
+        context["discovery_suggestions"] = self._generate_contextual_suggestions(
+            current_situation, location, context
+        )
         
         return context
     
-    def query_knowledge(self, query: str) -> Dict[str, Any]:
+    def _merge_strategy_results(self, local_strategies: List[GameStrategy], 
+                               semantic_results: List[Dict]) -> List[Dict[str, Any]]:
+        """Merge local strategies with semantic search results"""
+        merged = []
+        
+        # Add local strategies first (they're already filtered for relevance)
+        for strat in local_strategies:
+            merged.append({
+                "situation": strat.situation_description,
+                "buttons": strat.button_sequence,
+                "success_rate": f"{strat.success_rate:.1%}",
+                "times_used": strat.times_used,
+                "source": "local_memory",
+                "recency_score": getattr(strat, 'recency_score', 0.5)
+            })
+        
+        # Add semantic results if they're not duplicates
+        for result in semantic_results[:3]:  # Limit semantic results
+            if not any(result.get('situation_description', '') in s['situation'] for s in merged):
+                merged.append({
+                    "situation": result.get('situation_description', 'Unknown'),
+                    "buttons": result.get('button_sequence', []),
+                    "success_rate": f"{result.get('success_rate', 0):.1%}",
+                    "times_used": result.get('times_used', 0),
+                    "source": "semantic_search",
+                    "recency_score": result.get('recency_score', 0.3)
+                })
+        
+        # Sort by success rate and recency
+        merged.sort(key=lambda x: (float(x['success_rate'].rstrip('%')) / 100, x['recency_score']), reverse=True)
+        return merged[:5]  # Top 5 strategies
+    
+    def _format_local_strategies(self, strategies: List[GameStrategy]) -> List[Dict[str, Any]]:
+        """Format local strategies for context"""
+        return [
+            {
+                "situation": strat.situation_description,
+                "buttons": strat.button_sequence,
+                "success_rate": f"{strat.success_rate:.1%}",
+                "times_used": strat.times_used,
+                "source": "local_memory"
+            }
+            for strat in strategies
+        ]
+    
+    def _extract_location_insights(self, location_results: Dict) -> Dict[str, Any]:
+        """Extract location-specific insights from search results"""
+        insights = {
+            "pokemon_found": [],
+            "success_strategies": [],
+            "visit_frequency": "unknown"
+        }
+        
+        results = location_results.get("results", [])
+        for result in results:
+            if result.get("entity_type") == "Pokemon":
+                insights["pokemon_found"].append({
+                    "name": result.get("name", "Unknown"),
+                    "frequency": result.get("frequency", 1)
+                })
+            elif result.get("entity_type") == "Strategy":
+                if result.get("success_rate", 0) > 0.7:
+                    insights["success_strategies"].append({
+                        "situation": result.get("situation_description", ""),
+                        "success_rate": result.get("success_rate", 0)
+                    })
+        
+        return insights
+    
+    def _extract_pokemon_insights(self, pokemon_results: Dict) -> Dict[str, Any]:
+        """Extract Pokemon-related insights"""
+        insights = {
+            "recently_encountered": [],
+            "battle_strategies": [],
+            "catch_patterns": {}
+        }
+        
+        results = pokemon_results.get("results", [])
+        for result in results:
+            if result.get("entity_type") == "Encounter":
+                insights["recently_encountered"].append({
+                    "pokemon": result.get("pokemon_name", "Unknown"),
+                    "location": result.get("location", "Unknown"),
+                    "time_ago": result.get("age_description", "Unknown")
+                })
+            elif result.get("entity_type") == "Battle":
+                insights["battle_strategies"].append({
+                    "opponent": result.get("opponent_type", "Unknown"),
+                    "outcome": result.get("outcome", "Unknown"),
+                    "strategy": result.get("strategy_used", "Unknown")
+                })
+        
+        return insights
+    
+    def _generate_contextual_suggestions(self, situation: str, location: str, 
+                                       context: Dict[str, Any]) -> List[str]:
+        """Generate context-aware discovery suggestions"""
+        suggestions = []
+        
+        # Base suggestions
+        base_suggestions = [
+            "Look for NPCs to talk to - they often provide objectives",
+            "Check for items or interactable objects",
+            "Notice location names and landmarks for navigation"
+        ]
+        
+        # Add location-specific suggestions
+        if location:
+            suggestions.append(f"Explore thoroughly at {location} - check for hidden items or areas")
+            
+            # Check if we have Pokemon knowledge for this location
+            location_pokemon = context.get("location_insights", {}).get("pokemon_found", [])
+            if location_pokemon:
+                suggestions.append(f"Pokemon spotted here: {', '.join([p['name'] for p in location_pokemon[:3]])}")
+        
+        # Add strategy-based suggestions
+        strategies = context.get("relevant_strategies", [])
+        if strategies:
+            best_strategy = strategies[0]
+            suggestions.append(f"Try proven strategy: {best_strategy['situation']} ({best_strategy['success_rate']} success)")
+        
+        # Add temporal suggestions
+        patterns = context.get("temporal_patterns", {})
+        if patterns.get("success_patterns"):
+            suggestions.append("Recent successful patterns detected - check strategy list")
+        
+        return suggestions[:6]  # Limit to 6 suggestions
+    
+    def query_knowledge(self, query: str, include_temporal: bool = True) -> Dict[str, Any]:
         """
-        Query the knowledge graph using natural language.
-        Returns relevant information.
+        Query the knowledge graph using natural language with temporal awareness.
+        Returns relevant information with temporal context.
         """
         if not self.graphiti:
             return {"error": "Graphiti not available"}
         
         try:
-            results = self.graphiti.search(query)
+            # Enhanced query with temporal context
+            if include_temporal:
+                current_time = time.time()
+                temporal_query = f"{query} - considering temporal patterns and recent changes in the last hour"
+                results = self.graphiti.search(temporal_query, limit=10)
+            else:
+                results = self.graphiti.search(query, limit=5)
+            
+            # Process results to extract temporal insights
+            processed_results = self._process_temporal_results(results)
+            
             return {
                 "query": query,
-                "results": results,
+                "results": processed_results,
+                "temporal_analysis": self._analyze_temporal_patterns(query),
                 "timestamp": time.time()
             }
         except Exception as e:
             self.logger.error(f"❌ Error querying knowledge: {e}")
             return {"error": str(e)}
     
+    def _process_temporal_results(self, results) -> List[Dict[str, Any]]:
+        """Process search results to include temporal insights"""
+        processed = []
+        current_time = time.time()
+        
+        for result in results.get('results', []):
+            # Add temporal context to each result
+            result_with_temporal = dict(result)
+            
+            # Calculate recency score
+            if 'timestamp' in result:
+                age_seconds = current_time - result['timestamp']
+                age_hours = age_seconds / 3600
+                result_with_temporal['recency_score'] = max(0, 1 - (age_hours / 24))  # Decay over 24 hours
+                result_with_temporal['age_description'] = self._describe_age(age_seconds)
+            
+            processed.append(result_with_temporal)
+        
+        # Sort by relevance and recency
+        processed.sort(key=lambda x: x.get('recency_score', 0), reverse=True)
+        return processed
+    
+    def _analyze_temporal_patterns(self, query: str) -> Dict[str, Any]:
+        """Analyze temporal patterns related to the query"""
+        try:
+            patterns = {
+                "frequent_times": [],
+                "recent_trends": [],
+                "success_patterns": []
+            }
+            
+            # Analyze strategy usage patterns over time
+            if "strategy" in query.lower() or "how" in query.lower():
+                for strategy in self.learned_strategies.values():
+                    if strategy.success_rate > 0.7 and strategy.times_used > 2:
+                        patterns["success_patterns"].append({
+                            "strategy": strategy.situation_description,
+                            "success_rate": strategy.success_rate,
+                            "usage_frequency": strategy.times_used,
+                            "last_successful": strategy.last_used
+                        })
+            
+            return patterns
+        except Exception as e:
+            self.logger.error(f"Error analyzing temporal patterns: {e}")
+            return {}
+    
+    def _describe_age(self, age_seconds: float) -> str:
+        """Convert age in seconds to human-readable description"""
+        if age_seconds < 60:
+            return "just now"
+        elif age_seconds < 3600:
+            return f"{int(age_seconds // 60)} minutes ago"
+        elif age_seconds < 86400:
+            return f"{int(age_seconds // 3600)} hours ago"
+        else:
+            return f"{int(age_seconds // 86400)} days ago"
+    
+    def record_pokemon_encounter(self, pokemon_name: str, location: str, level: int = None, 
+                                caught: bool = False, context: Dict[str, Any] = None) -> str:
+        """
+        Record a Pokemon encounter with rich relationship modeling.
+        Returns the encounter ID.
+        """
+        if not self.graphiti:
+            return ""
+        
+        encounter_id = f"encounter_{int(time.time())}_{hash(pokemon_name) % 10000}"
+        current_time = time.time()
+        context = context or {}
+        
+        try:
+            # Create comprehensive entities
+            entities = [
+                {
+                    "entity_type": "Pokemon",
+                    "entity_id": f"pokemon_{pokemon_name.lower().replace(' ', '_')}",
+                    "name": pokemon_name,
+                    "species": pokemon_name,
+                    "first_encountered": current_time,
+                    "times_encountered": context.get("encounter_count", 1),
+                    "caught": caught
+                },
+                {
+                    "entity_type": "Encounter", 
+                    "entity_id": encounter_id,
+                    "pokemon_name": pokemon_name,
+                    "location": location,
+                    "level": level or "unknown",
+                    "caught": caught,
+                    "timestamp": current_time,
+                    "weather": context.get("weather", "unknown"),
+                    "time_of_day": context.get("time_of_day", "unknown")
+                },
+                {
+                    "entity_type": "Location",
+                    "entity_id": f"loc_{location.replace(' ', '_').lower()}",
+                    "name": location,
+                    "pokemon_species_count": context.get("species_count", 1),
+                    "last_visited": current_time
+                }
+            ]
+            
+            # Build rich relationships
+            relationships = [
+                {
+                    "from": encounter_id,
+                    "to": f"pokemon_{pokemon_name.lower().replace(' ', '_')}",
+                    "relation": "encountered_pokemon",
+                    "strength": 1.0,
+                    "properties": {"level": level, "caught": caught}
+                },
+                {
+                    "from": encounter_id, 
+                    "to": f"loc_{location.replace(' ', '_').lower()}",
+                    "relation": "occurred_at",
+                    "strength": 1.0,
+                    "temporal_validity": [current_time, None]
+                },
+                {
+                    "from": f"pokemon_{pokemon_name.lower().replace(' ', '_')}",
+                    "to": f"loc_{location.replace(' ', '_').lower()}", 
+                    "relation": "found_at",
+                    "strength": context.get("encounter_count", 1) / 10.0,  # Stronger with more encounters
+                    "properties": {"frequency": context.get("encounter_count", 1)}
+                }
+            ]
+            
+            # Add trainer relationship if caught
+            if caught:
+                relationships.append({
+                    "from": "player",
+                    "to": f"pokemon_{pokemon_name.lower().replace(' ', '_')}",
+                    "relation": "owns",
+                    "strength": 1.0,
+                    "timestamp": current_time
+                })
+            
+            self.graphiti.add_episode(
+                episode_id=encounter_id,
+                entities=entities,
+                relationships=relationships,
+                content=f"{'Caught' if caught else 'Encountered'} {pokemon_name} (Level {level}) at {location}. {context}"
+            )
+            
+            self.logger.info(f"🎮 {'Caught' if caught else 'Encountered'} {pokemon_name} at {location}")
+            return encounter_id
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error recording Pokemon encounter: {e}")
+            return ""
+    
+    def record_battle_outcome(self, opponent_type: str, outcome: str, location: str, 
+                             context: Dict[str, Any] = None) -> str:
+        """
+        Record battle outcomes with strategic analysis.
+        Returns the battle ID.
+        """
+        if not self.graphiti:
+            return ""
+        
+        battle_id = f"battle_{int(time.time())}_{hash(opponent_type) % 10000}"
+        current_time = time.time()
+        context = context or {}
+        
+        try:
+            entities = [
+                {
+                    "entity_type": "Battle",
+                    "entity_id": battle_id,
+                    "opponent_type": opponent_type,
+                    "outcome": outcome,  # "won", "lost", "fled"
+                    "location": location,
+                    "timestamp": current_time,
+                    "player_team_size": context.get("team_size", 1),
+                    "strategy_used": context.get("strategy", "unknown")
+                },
+                {
+                    "entity_type": "Opponent",
+                    "entity_id": f"opponent_{opponent_type.lower().replace(' ', '_')}",
+                    "type": opponent_type,
+                    "battles_fought": context.get("battles_against", 1),
+                    "win_rate_against": context.get("win_rate", 1.0 if outcome == "won" else 0.0)
+                }
+            ]
+            
+            relationships = [
+                {
+                    "from": battle_id,
+                    "to": f"loc_{location.replace(' ', '_').lower()}",
+                    "relation": "fought_at",
+                    "strength": 1.0
+                },
+                {
+                    "from": "player",
+                    "to": f"opponent_{opponent_type.lower().replace(' ', '_')}",
+                    "relation": "battled",
+                    "strength": 1.0 if outcome == "won" else 0.5,
+                    "properties": {"outcome": outcome, "timestamp": current_time}
+                }
+            ]
+            
+            self.graphiti.add_episode(
+                episode_id=battle_id,
+                entities=entities,
+                relationships=relationships,
+                content=f"Battle against {opponent_type} at {location}: {outcome}. {context}"
+            )
+            
+            self.logger.info(f"⚔️ Battle vs {opponent_type}: {outcome}")
+            return battle_id
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error recording battle: {e}")
+            return ""
+
     def get_stats(self) -> Dict[str, Any]:
-        """Get memory system statistics"""
-        return {
+        """Get comprehensive memory system statistics"""
+        stats = {
             "active_objectives": len(self.active_objectives),
             "completed_achievements": len(self.completed_achievements),
             "learned_strategies": len(self.learned_strategies),
             "total_strategy_uses": sum(s.times_used for s in self.learned_strategies.values()),
             "avg_strategy_success": sum(s.success_rate for s in self.learned_strategies.values()) / len(self.learned_strategies) if self.learned_strategies else 0
         }
+        
+        # Add temporal analysis
+        if self.graphiti:
+            try:
+                # Query for recent activity
+                recent_query = self.query_knowledge("recent activity in the last hour", include_temporal=True)
+                stats["recent_activity_count"] = len(recent_query.get("results", []))
+                stats["temporal_patterns"] = recent_query.get("temporal_analysis", {})
+            except Exception as e:
+                self.logger.debug(f"Could not get temporal stats: {e}")
+        
+        return stats
 
 
 # Fallback memory system for when Graphiti is not available
