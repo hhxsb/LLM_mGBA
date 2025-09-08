@@ -351,6 +351,9 @@ class Configuration(models.Model):
     dashboard = models.JSONField(default=dict, help_text="Dashboard configuration")
     storage = models.JSONField(default=dict, help_text="Storage configuration")
     
+    # Memory System Configuration
+    memory_config = models.JSONField(default=dict, help_text="Memory system configuration")
+    
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -476,6 +479,28 @@ class Configuration(models.Model):
                     'archive_old_sessions': True,
                     'max_database_size_gb': 5
                 }
+            },
+            'memory_config': {
+                'enabled': True,
+                'system_type': 'auto',  # 'auto', 'simple', 'graphiti'
+                'llm_provider': 'inherit',  # 'inherit', 'google', 'openai', 'anthropic'
+                'api_keys': {},  # {'google': 'key', 'openai': 'key', etc}
+                'neo4j': {
+                    'uri': 'bolt://localhost:7687',
+                    'username': 'neo4j',
+                    'password': '',
+                    'database': 'neo4j'
+                },
+                'graphiti_config': {
+                    'llm_model': 'gemini-2.0-flash',
+                    'embedding_model': 'embedding-001',
+                    'reranker_model': 'gemini-2.5-flash-lite-preview-06-17'
+                },
+                'fallback_config': {
+                    'auto_fallback': True,
+                    'fallback_on_error': True,
+                    'retry_attempts': 3
+                }
             }
         }
     
@@ -508,4 +533,53 @@ class Configuration(models.Model):
             'unified_service': self.unified_service,
             'dashboard': self.dashboard,
             'storage': self.storage,
+            'memory_config': self.memory_config,
         }
+    
+    @property
+    def memory_system_config(self):
+        """Get structured memory configuration with defaults"""
+        # Get the base memory config with defaults
+        default_memory_config = self.get_default_config()['memory_config']
+        
+        # Merge with current config, ensuring all fields exist
+        current_config = self.memory_config or {}
+        
+        config = {
+            'enabled': current_config.get('enabled', default_memory_config['enabled']),
+            'system_type': current_config.get('system_type', default_memory_config['system_type']),
+            'llm_provider': current_config.get('llm_provider', default_memory_config['llm_provider']),
+            'api_keys': current_config.get('api_keys', default_memory_config['api_keys'].copy()),
+            'neo4j': {**default_memory_config['neo4j'], **current_config.get('neo4j', {})},
+            'graphiti_config': {**default_memory_config['graphiti_config'], **current_config.get('graphiti_config', {})},
+            'fallback_config': {**default_memory_config['fallback_config'], **current_config.get('fallback_config', {})}
+        }
+        
+        return config
+    
+    def update_memory_config(self, config_updates):
+        """Update memory configuration with proper validation"""
+        current = self.memory_system_config
+        
+        # Deep merge the updates
+        if 'neo4j' in config_updates:
+            current['neo4j'].update(config_updates['neo4j'])
+            del config_updates['neo4j']
+        
+        if 'graphiti_config' in config_updates:
+            current['graphiti_config'].update(config_updates['graphiti_config'])
+            del config_updates['graphiti_config']
+            
+        if 'fallback_config' in config_updates:
+            current['fallback_config'].update(config_updates['fallback_config'])
+            del config_updates['fallback_config']
+            
+        if 'api_keys' in config_updates:
+            current['api_keys'].update(config_updates['api_keys'])
+            del config_updates['api_keys']
+        
+        # Update top-level fields
+        current.update(config_updates)
+        
+        self.memory_config = current
+        self.save()

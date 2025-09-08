@@ -589,3 +589,253 @@ def chat_message(request):
             'success': False,
             'message': f'Error processing message: {str(e)}'
         })
+
+def save_memory_config(request):
+    """Save memory system configuration"""
+    try:
+        # Get memory system configuration parameters
+        enabled = request.POST.get('memory_enabled', 'true').lower() == 'true'
+        system_type = request.POST.get('memory_system_type', 'auto')
+        llm_provider = request.POST.get('memory_llm_provider', 'inherit')
+        
+        # Get API keys for different providers
+        api_keys = {}
+        if request.POST.get('memory_google_api_key', '').strip():
+            api_keys['google'] = request.POST.get('memory_google_api_key').strip()
+        if request.POST.get('memory_openai_api_key', '').strip():
+            api_keys['openai'] = request.POST.get('memory_openai_api_key').strip()
+        if request.POST.get('memory_anthropic_api_key', '').strip():
+            api_keys['anthropic'] = request.POST.get('memory_anthropic_api_key').strip()
+        
+        # Get Neo4j configuration
+        neo4j_uri = request.POST.get('memory_neo4j_uri', 'bolt://localhost:7687').strip()
+        neo4j_username = request.POST.get('memory_neo4j_username', 'neo4j').strip()
+        neo4j_password = request.POST.get('memory_neo4j_password', '').strip()
+        neo4j_database = request.POST.get('memory_neo4j_database', 'neo4j').strip()
+        
+        # Get Graphiti configuration
+        graphiti_llm_model = request.POST.get('memory_graphiti_llm_model', 'gemini-2.0-flash').strip()
+        graphiti_embedding_model = request.POST.get('memory_graphiti_embedding_model', 'embedding-001').strip()
+        graphiti_reranker_model = request.POST.get('memory_graphiti_reranker_model', 'gemini-2.5-flash-lite-preview-06-17').strip()
+        
+        # Get fallback configuration
+        auto_fallback = request.POST.get('memory_auto_fallback', 'true').lower() == 'true'
+        fallback_on_error = request.POST.get('memory_fallback_on_error', 'true').lower() == 'true'
+        retry_attempts = int(request.POST.get('memory_retry_attempts', '3'))
+        
+        # Get or create Configuration instance
+        from dashboard.models import Configuration
+        config = Configuration.get_config()
+        
+        # Update memory configuration
+        memory_config_update = {
+            'enabled': enabled,
+            'system_type': system_type,
+            'llm_provider': llm_provider,
+            'api_keys': api_keys,
+            'neo4j': {
+                'uri': neo4j_uri,
+                'username': neo4j_username,
+                'password': neo4j_password,
+                'database': neo4j_database
+            },
+            'graphiti_config': {
+                'llm_model': graphiti_llm_model,
+                'embedding_model': graphiti_embedding_model,
+                'reranker_model': graphiti_reranker_model
+            },
+            'fallback_config': {
+                'auto_fallback': auto_fallback,
+                'fallback_on_error': fallback_on_error,
+                'retry_attempts': retry_attempts
+            }
+        }
+        
+        # Update and save configuration
+        config.update_memory_config(memory_config_update)
+        config.save()
+        
+        # Try to initialize or reinitialize memory system
+        try:
+            from core.memory_service import initialize_global_memory_system
+            memory_system = initialize_global_memory_system()
+            
+            if memory_system:
+                system_name = type(memory_system).__name__
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Memory system configuration saved and {system_name} initialized successfully'
+                })
+            else:
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Memory system configuration saved but system is disabled by configuration'
+                })
+        except Exception as init_error:
+            return JsonResponse({
+                'success': True,
+                'message': f'Memory configuration saved but initialization failed: {str(init_error)}'
+            })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error saving memory config: {str(e)}'
+        })
+
+def get_memory_config(request):
+    """Get current memory system configuration"""
+    try:
+        from dashboard.models import Configuration
+        config = Configuration.get_config()
+        memory_config = config.memory_system_config
+        
+        # Get memory system status
+        try:
+            from core.memory_service import get_global_memory_system, get_memory_stats
+            memory_system = get_global_memory_system()
+            stats = get_memory_stats()
+            
+            if memory_system:
+                system_name = type(memory_system).__name__
+                status = 'active'
+            else:
+                system_name = 'None'
+                status = 'inactive'
+        except Exception:
+            system_name = 'Unknown'
+            status = 'error'
+            stats = {'status': 'error'}
+        
+        return JsonResponse({
+            'success': True,
+            'config': memory_config,
+            'status': {
+                'system_name': system_name,
+                'status': status,
+                'stats': stats
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting memory config: {str(e)}'
+        })
+
+def test_memory_connection(request):
+    """Test memory system connections (Neo4j, API keys)"""
+    try:
+        from dashboard.models import Configuration
+        config = Configuration.get_config()
+        memory_config = config.memory_system_config
+        
+        results = {
+            'neo4j': {'status': 'untested', 'message': ''},
+            'api_key': {'status': 'untested', 'message': ''},
+            'graphiti': {'status': 'untested', 'message': ''}
+        }
+        
+        # Test Neo4j connection
+        try:
+            from neo4j import GraphDatabase
+            neo4j_config = memory_config.get('neo4j', {})
+            driver = GraphDatabase.driver(
+                neo4j_config.get('uri', 'bolt://localhost:7687'),
+                auth=(
+                    neo4j_config.get('username', 'neo4j'),
+                    neo4j_config.get('password', '')
+                )
+            )
+            with driver.session() as session:
+                result = session.run("RETURN 1 as test")
+                record = result.single()
+                if record and record['test'] == 1:
+                    results['neo4j'] = {'status': 'success', 'message': 'Connected successfully'}
+                else:
+                    results['neo4j'] = {'status': 'error', 'message': 'Unexpected response'}
+            driver.close()
+        except ImportError:
+            results['neo4j'] = {'status': 'error', 'message': 'neo4j package not installed'}
+        except Exception as e:
+            results['neo4j'] = {'status': 'error', 'message': str(e)}
+        
+        # Test API key availability
+        llm_provider = memory_config.get('llm_provider', 'inherit')
+        if llm_provider == 'inherit':
+            # Check main configuration
+            main_provider = config.llm_provider
+            api_key = config.providers.get(main_provider, {}).get('api_key')
+            if api_key:
+                results['api_key'] = {'status': 'success', 'message': f'Using {main_provider} API key from main config'}
+            else:
+                results['api_key'] = {'status': 'error', 'message': f'No API key found for {main_provider} in main config'}
+        else:
+            # Check memory-specific API key
+            api_keys = memory_config.get('api_keys', {})
+            api_key = api_keys.get(llm_provider)
+            if api_key:
+                results['api_key'] = {'status': 'success', 'message': f'{llm_provider} API key configured'}
+            else:
+                results['api_key'] = {'status': 'error', 'message': f'No API key configured for {llm_provider}'}
+        
+        # Test Graphiti availability and Gemini support
+        try:
+            import graphiti_core
+            # Check if Gemini components are available
+            try:
+                from graphiti_core.llm_client.gemini_client import GeminiClient
+                from graphiti_core.embedder.gemini import GeminiEmbedder
+                from graphiti_core.cross_encoder.gemini_reranker_client import GeminiRerankerClient
+                results['graphiti'] = {'status': 'success', 'message': 'Graphiti with Google Gemini support available'}
+            except ImportError:
+                results['graphiti'] = {'status': 'warning', 'message': 'Graphiti available but missing Google Gemini support - install with: pip install "graphiti-core[google-genai]"'}
+        except ImportError:
+            results['graphiti'] = {'status': 'warning', 'message': 'Graphiti package not installed - will use SimpleMemorySystem'}
+        
+        # Overall status
+        success_count = sum(1 for r in results.values() if r['status'] == 'success')
+        total_tests = len(results)
+        
+        return JsonResponse({
+            'success': True,
+            'results': results,
+            'summary': f'{success_count}/{total_tests} tests passed'
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error testing memory connections: {str(e)}'
+        })
+
+def reset_memory_system(request):
+    """Reset and reinitialize the memory system"""
+    try:
+        # Force reset the global memory system
+        from core.memory_service import initialize_global_memory_system
+        import core.memory_service
+        
+        # Clear the global instance
+        core.memory_service._global_memory_system = None
+        
+        # Reinitialize
+        memory_system = initialize_global_memory_system()
+        
+        if memory_system:
+            system_name = type(memory_system).__name__
+            return JsonResponse({
+                'success': True,
+                'message': f'Memory system reset and {system_name} initialized successfully'
+            })
+        else:
+            return JsonResponse({
+                'success': True,
+                'message': 'Memory system reset - system is disabled by configuration'
+            })
+            
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error resetting memory system: {str(e)}'
+        })

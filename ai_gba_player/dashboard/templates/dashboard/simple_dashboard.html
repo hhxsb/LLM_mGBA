@@ -89,13 +89,148 @@
                     <button class="btn btn-outline" onclick="resetLLMSession()" style="background: #fd7e14; color: white; margin-top: 10px;">🔄 Reset LLM Session</button>
                 </div>
                 <div class="config-section">
-                    <h3>🧠 Graphiti Memory</h3>
-                    <div class="memory-display" id="memory-display">
+                    <h3>🧠 Memory System Configuration</h3>
+                    
+                    <!-- Memory System Status -->
+                    <div class="memory-status-section">
                         <div class="memory-header">
                             <span class="memory-status" id="memory-status">Loading...</span>
                             <span class="memory-stats" id="memory-stats">0 objectives, 0 strategies</span>
                         </div>
-                        
+                        <button class="btn btn-outline btn-sm" onclick="testMemoryConnections()">🔧 Test Connections</button>
+                        <button class="btn btn-outline btn-sm" onclick="resetMemorySystem()">🔄 Reset Memory System</button>
+                    </div>
+
+                    <!-- Memory Configuration Form -->
+                    <details style="margin: 15px 0; border: 1px solid #e1e8ed; border-radius: 6px;">
+                        <summary style="padding: 10px; cursor: pointer; background: #f8f9fa; font-weight: 500;">⚙️ Memory System Settings</summary>
+                        <div style="padding: 15px;">
+                            
+                            <!-- Basic Settings -->
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="memory-enabled" checked> Enable Memory System
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>System Type</label>
+                                <select id="memory-system-type">
+                                    <option value="auto">Auto-detect (Recommended)</option>
+                                    <option value="graphiti">Graphiti (Advanced AI Memory)</option>
+                                    <option value="simple">Simple (Text-based)</option>
+                                </select>
+                                <small style="color: #6b7280; font-size: 11px;">Auto-detect uses Graphiti if available, otherwise Simple</small>
+                            </div>
+
+                            <!-- LLM Provider Settings -->
+                            <div class="form-group">
+                                <label>LLM Provider for Memory</label>
+                                <select id="memory-llm-provider">
+                                    <option value="inherit">Inherit from AI Settings</option>
+                                    <option value="google">Google Gemini</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                </select>
+                            </div>
+
+                            <!-- API Keys Section -->
+                            <details style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                                <summary style="padding: 8px; cursor: pointer; background: #f5f5f5; font-size: 14px;">🔐 Memory System API Keys (Optional)</summary>
+                                <div style="padding: 10px;">
+                                    <small style="color: #6b7280; margin-bottom: 10px; display: block;">Only needed if not using "Inherit from AI Settings"</small>
+                                    
+                                    <div class="form-group">
+                                        <label>Google Gemini API Key</label>
+                                        <input type="password" id="memory-google-api-key" placeholder="Enter Google API key">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>OpenAI API Key</label>
+                                        <input type="password" id="memory-openai-api-key" placeholder="Enter OpenAI API key">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Anthropic API Key</label>
+                                        <input type="password" id="memory-anthropic-api-key" placeholder="Enter Anthropic API key">
+                                    </div>
+                                </div>
+                            </details>
+
+                            <!-- Neo4j Configuration -->
+                            <details style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                                <summary style="padding: 8px; cursor: pointer; background: #f5f5f5; font-size: 14px;">🗄️ Neo4j Database Configuration</summary>
+                                <div style="padding: 10px;">
+                                    <div class="form-group">
+                                        <label>Neo4j URI</label>
+                                        <input type="text" id="memory-neo4j-uri" value="bolt://localhost:7687" placeholder="bolt://localhost:7687">
+                                        <small style="color: #6b7280; font-size: 11px;">Neo4j connection string</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Username</label>
+                                        <input type="text" id="memory-neo4j-username" value="neo4j" placeholder="neo4j">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Password</label>
+                                        <input type="password" id="memory-neo4j-password" placeholder="Neo4j password">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Database</label>
+                                        <input type="text" id="memory-neo4j-database" value="neo4j" placeholder="neo4j">
+                                    </div>
+                                </div>
+                            </details>
+
+                            <!-- Advanced Graphiti Settings -->
+                            <details style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                                <summary style="padding: 8px; cursor: pointer; background: #f5f5f5; font-size: 14px;">🎛️ Advanced Graphiti Settings</summary>
+                                <div style="padding: 10px;">
+                                    <div class="form-group">
+                                        <label>LLM Model</label>
+                                        <input type="text" id="memory-graphiti-llm-model" value="gemini-2.0-flash" placeholder="gemini-2.0-flash">
+                                        <small style="color: #6b7280; font-size: 11px;">Model for reasoning and text generation</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Embedding Model</label>
+                                        <input type="text" id="memory-graphiti-embedding-model" value="embedding-001" placeholder="embedding-001">
+                                        <small style="color: #6b7280; font-size: 11px;">Model for text embeddings</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Reranker Model</label>
+                                        <input type="text" id="memory-graphiti-reranker-model" value="gemini-2.5-flash-lite-preview-06-17" placeholder="gemini-2.5-flash-lite-preview-06-17">
+                                        <small style="color: #6b7280; font-size: 11px;">Model for search result ranking</small>
+                                    </div>
+                                </div>
+                            </details>
+
+                            <!-- Fallback Settings -->
+                            <details style="margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                                <summary style="padding: 8px; cursor: pointer; background: #f5f5f5; font-size: 14px;">🔧 Error Handling</summary>
+                                <div style="padding: 10px;">
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="memory-auto-fallback" checked> Auto-fallback to Simple Memory
+                                        </label>
+                                        <small style="color: #6b7280; font-size: 11px; display: block;">Automatically use Simple Memory if Graphiti fails</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="memory-fallback-on-error" checked> Fallback on Runtime Errors
+                                        </label>
+                                        <small style="color: #6b7280; font-size: 11px; display: block;">Switch to Simple Memory if Graphiti encounters errors during operation</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Retry Attempts</label>
+                                        <input type="number" id="memory-retry-attempts" value="3" min="1" max="10">
+                                        <small style="color: #6b7280; font-size: 11px;">Number of retry attempts before falling back</small>
+                                    </div>
+                                </div>
+                            </details>
+
+                            <button class="btn btn-primary" onclick="saveMemoryConfig()" style="margin-top: 15px;">💾 Save Memory Configuration</button>
+                        </div>
+                    </details>
+
+                    <!-- Memory System Display (Current Objectives & Strategies) -->
+                    <div class="memory-display" id="memory-display" style="margin-top: 15px;">
                         <!-- Objectives Panel -->
                         <div class="memory-section">
                             <h4>🎯 Current Objectives</h4>

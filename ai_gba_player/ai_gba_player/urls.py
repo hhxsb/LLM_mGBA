@@ -39,6 +39,12 @@ urlpatterns = [
     path('api/save-ai-config/', csrf_exempt(simple_views.save_ai_config), name='save_ai_config'),
     path('api/chat-messages/', csrf_exempt(simple_views.get_chat_messages), name='get_chat_messages'),
     
+    # Memory system configuration API endpoints
+    path('api/memory-config/save/', csrf_exempt(simple_views.save_memory_config), name='save_memory_config'),
+    path('api/memory-config/get/', csrf_exempt(simple_views.get_memory_config), name='get_memory_config'),
+    path('api/memory-config/test/', csrf_exempt(simple_views.test_memory_connection), name='test_memory_connection'),
+    path('api/memory-config/reset/', csrf_exempt(simple_views.reset_memory_system), name='reset_memory_system'),
+    
     # Graphiti Memory System API endpoints
     path('api/graphiti/objectives/', csrf_exempt(graphiti_views.get_objectives), name='get_objectives'),
     path('api/graphiti/objectives/add/', csrf_exempt(graphiti_views.add_objective), name='add_objective'),

@@ -76,7 +76,9 @@ class GraphitiMemorySystem:
     """
     
     def __init__(self, neo4j_uri: str = "bolt://localhost:7687", 
-                 neo4j_user: str = "neo4j", neo4j_password: str = "password"):
+                 neo4j_user: str = "neo4j", neo4j_password: str = "password",
+                 api_key: str = None, llm_provider: str = "google",
+                 graphiti_config: dict = None):
         self.logger = logging.getLogger(__name__)
         
         if not GRAPHITI_AVAILABLE:
@@ -85,24 +87,90 @@ class GraphitiMemorySystem:
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
+        self.api_key = api_key
+        self.llm_provider = llm_provider
+        
+        # Default Graphiti configuration
+        default_graphiti_config = {
+            'llm_model': 'gemini-2.0-flash',
+            'embedding_model': 'embedding-001',
+            'reranker_model': 'gemini-2.5-flash-lite-preview-06-17'
+        }
+        self.graphiti_config = {**default_graphiti_config, **(graphiti_config or {})}
         
         # Initialize Graphiti client
         try:
-            # Check for required environment variables
-            import os
-            if not os.getenv('OPENAI_API_KEY'):
-                self.logger.warning("⚠️ OPENAI_API_KEY not set - Graphiti requires an API key")
+            # Validate API key
+            if not api_key:
+                self.logger.warning(f"⚠️ No API key provided for {llm_provider} - Graphiti requires an API key")
                 self.graphiti = None
                 return
             
-            self.graphiti = Graphiti(
-                uri=neo4j_uri,
-                user=neo4j_user,
-                password=neo4j_password
-            )
-            self.logger.info("✅ Graphiti memory system initialized")
+            # Initialize Graphiti with multi-provider support (updated for v0.20.2+)
+            if llm_provider in ['google', 'gemini']:
+                from graphiti_core.llm_client.gemini_client import GeminiClient, LLMConfig
+                from graphiti_core.embedder.gemini import GeminiEmbedder, GeminiEmbedderConfig
+                from graphiti_core.cross_encoder.gemini_reranker_client import GeminiRerankerClient
+                
+                # Create LLM client with configuration
+                llm_config = LLMConfig(
+                    api_key=api_key,
+                    model=self.graphiti_config['llm_model']
+                )
+                llm_client = GeminiClient(config=llm_config)
+                
+                # Create embedder with configuration
+                embedder_config = GeminiEmbedderConfig(
+                    api_key=api_key,
+                    embedding_model=self.graphiti_config['embedding_model']
+                )
+                embedder = GeminiEmbedder(config=embedder_config)
+                
+                # Create reranker with configuration
+                reranker_config = LLMConfig(
+                    api_key=api_key,
+                    model=self.graphiti_config['reranker_model']
+                )
+                reranker = GeminiRerankerClient(config=reranker_config)
+                
+                # Initialize Graphiti with Gemini components
+                self.graphiti = Graphiti(
+                    uri=neo4j_uri,
+                    user=neo4j_user,
+                    password=neo4j_password,
+                    llm_client=llm_client,
+                    embedder=embedder,
+                    cross_encoder=reranker
+                )
+                self.logger.info(f"✅ Graphiti memory system initialized with Google Gemini ({self.graphiti_config['llm_model']})")
+                
+            elif llm_provider == 'openai':
+                # Set OpenAI API key in environment for Graphiti's automatic initialization
+                import os
+                os.environ['OPENAI_API_KEY'] = api_key
+                
+                # Initialize Graphiti with default OpenAI clients
+                self.graphiti = Graphiti(
+                    uri=neo4j_uri,
+                    user=neo4j_user,
+                    password=neo4j_password
+                )
+                self.logger.info(f"✅ Graphiti memory system initialized with OpenAI")
+                
+            elif llm_provider == 'anthropic':
+                # Anthropic support would need custom client implementation
+                self.logger.warning(f"⚠️ Anthropic not yet supported in this Graphiti version - falling back to SimpleMemorySystem")
+                self.graphiti = None
+                return
+                
+            else:
+                raise ValueError(f"Unsupported LLM provider: {llm_provider}")
+                
+        except ImportError as e:
+            self.logger.error(f"❌ Failed to import Graphiti components for {llm_provider}: {e}")
+            self.graphiti = None
         except Exception as e:
-            self.logger.error(f"❌ Failed to initialize Graphiti: {e}")
+            self.logger.error(f"❌ Failed to initialize Graphiti with {llm_provider}: {e}")
             self.graphiti = None
         
         # In-memory caches for performance
@@ -516,16 +584,36 @@ class SimpleMemorySystem:
         }
 
 
-def create_memory_system(neo4j_uri: str = "bolt://localhost:7687", 
+def create_memory_system(system_type: str = 'auto',
+                        api_key: str = None,
+                        llm_provider: str = 'google',
+                        neo4j_uri: str = "bolt://localhost:7687", 
                         neo4j_user: str = "neo4j", 
-                        neo4j_password: str = "password"):
+                        neo4j_password: str = "password",
+                        graphiti_config: dict = None):
     """
-    Factory function to create the appropriate memory system.
-    Returns GraphitiMemorySystem if available, otherwise SimpleMemorySystem.
+    Enhanced factory function to create the appropriate memory system with multi-provider support.
+    Returns GraphitiMemorySystem if available and configured, otherwise SimpleMemorySystem.
     """
-    if GRAPHITI_AVAILABLE:
+    graphiti_config = graphiti_config or {}
+    
+    if system_type == 'simple':
+        return SimpleMemorySystem()
+    
+    if system_type == 'graphiti' or (system_type == 'auto' and GRAPHITI_AVAILABLE):
+        if not GRAPHITI_AVAILABLE:
+            logging.warning("🔄 Graphiti requested but not available, falling back to simple memory system")
+            return SimpleMemorySystem()
+        
         try:
-            memory_system = GraphitiMemorySystem(neo4j_uri, neo4j_user, neo4j_password)
+            memory_system = GraphitiMemorySystem(
+                api_key=api_key,
+                llm_provider=llm_provider,
+                neo4j_uri=neo4j_uri,
+                neo4j_user=neo4j_user,
+                neo4j_password=neo4j_password,
+                graphiti_config=graphiti_config
+            )
             # Check if GraphitiMemorySystem successfully initialized
             if memory_system.graphiti is None:
                 logging.info("🔄 Graphiti not fully initialized, falling back to simple memory system")

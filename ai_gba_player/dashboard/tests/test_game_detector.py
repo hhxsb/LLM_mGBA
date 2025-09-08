@@ -341,7 +341,7 @@ class GameDetectorManualOverrideTest(TestCase):
         
         # Clear it
         with patch('builtins.print'):  # Mock print to avoid output
-            with patch('dashboard.game_detector.Configuration') as mock_config:
+            with patch('dashboard.models.Configuration') as mock_config:
                 mock_config_instance = MagicMock()
                 mock_config_instance.game_override = 'pokemon_ruby'
                 mock_config.get_config.return_value = mock_config_instance

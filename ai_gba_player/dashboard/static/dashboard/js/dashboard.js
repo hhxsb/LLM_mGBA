@@ -461,30 +461,36 @@ function resetLLMSession() {
 // ===== GRAPHITI MEMORY SYSTEM FUNCTIONS =====
 
 function pollForMemoryUpdates() {
-    // Poll for objectives, strategies, and stats
+    // Poll for objectives, strategies, and overall memory config
     Promise.all([
         fetch('/api/graphiti/objectives/').then(r => r.json()),
         fetch('/api/graphiti/strategies/').then(r => r.json()),
-        fetch('/api/graphiti/stats/').then(r => r.json())
-    ]).then(([objectives, strategies, stats]) => {
-        updateMemoryDisplay(objectives, strategies, stats);
+        fetch('/api/memory-config/get/').then(r => r.json())  // Use new unified API
+    ]).then(([objectives, strategies, memoryConfig]) => {
+        updateMemoryDisplay(objectives, strategies, memoryConfig);
     }).catch(error => {
         console.error('Error polling memory updates:', error);
         document.getElementById('memory-status').textContent = 'Error loading';
     });
 }
 
-function updateMemoryDisplay(objectivesData, strategiesData, statsData) {
-    // Update status and stats
+function updateMemoryDisplay(objectivesData, strategiesData, memoryConfigData) {
+    // Update status and stats using new unified API
     const statusEl = document.getElementById('memory-status');
     const statsEl = document.getElementById('memory-stats');
     
-    if (statsData.success) {
-        const stats = statsData.stats;
-        statusEl.textContent = `${stats.memory_system_type} Memory Active`;
-        statsEl.textContent = `${stats.active_objectives} objectives, ${stats.learned_strategies} strategies`;
+    if (memoryConfigData.success && memoryConfigData.status) {
+        const status = memoryConfigData.status;
+        statusEl.textContent = `${status.system_name} (${status.status})`;
+        statusEl.className = `memory-status ${status.status}`;
+        
+        if (status.stats) {
+            const stats = status.stats;
+            statsEl.textContent = `${stats.active_objectives || 0} objectives, ${stats.learned_strategies || 0} strategies`;
+        }
     } else {
         statusEl.textContent = 'Memory system unavailable';
+        statusEl.className = 'memory-status error';
         statsEl.textContent = '0 objectives, 0 strategies';
     }
     
@@ -598,6 +604,185 @@ function completeObjective(objectiveId) {
     })
     .catch(error => addSystemMessage('Error completing objective: ' + error.message));
 }
+
+// ===== MEMORY SYSTEM CONFIGURATION FUNCTIONS =====
+
+function loadMemoryConfig() {
+    fetch('/api/memory-config/get/')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.config) {
+                populateMemoryConfigForm(data.config);
+                updateMemoryStatus(data.status);
+            } else {
+                addSystemMessage('Error loading memory config: ' + (data.message || 'Unknown error'));
+            }
+        })
+        .catch(error => addSystemMessage('Error loading memory config: ' + error.message));
+}
+
+function populateMemoryConfigForm(config) {
+    // Basic settings
+    document.getElementById('memory-enabled').checked = config.enabled || false;
+    document.getElementById('memory-system-type').value = config.system_type || 'auto';
+    document.getElementById('memory-llm-provider').value = config.llm_provider || 'inherit';
+    
+    // API keys
+    const apiKeys = config.api_keys || {};
+    document.getElementById('memory-google-api-key').value = apiKeys.google || '';
+    document.getElementById('memory-openai-api-key').value = apiKeys.openai || '';
+    document.getElementById('memory-anthropic-api-key').value = apiKeys.anthropic || '';
+    
+    // Neo4j configuration
+    const neo4j = config.neo4j || {};
+    document.getElementById('memory-neo4j-uri').value = neo4j.uri || 'bolt://localhost:7687';
+    document.getElementById('memory-neo4j-username').value = neo4j.username || 'neo4j';
+    document.getElementById('memory-neo4j-password').value = neo4j.password || '';
+    document.getElementById('memory-neo4j-database').value = neo4j.database || 'neo4j';
+    
+    // Graphiti configuration
+    const graphiti = config.graphiti_config || {};
+    document.getElementById('memory-graphiti-llm-model').value = graphiti.llm_model || 'gemini-2.0-flash';
+    document.getElementById('memory-graphiti-embedding-model').value = graphiti.embedding_model || 'embedding-001';
+    document.getElementById('memory-graphiti-reranker-model').value = graphiti.reranker_model || 'gemini-2.5-flash-lite-preview-06-17';
+    
+    // Fallback configuration
+    const fallback = config.fallback_config || {};
+    document.getElementById('memory-auto-fallback').checked = fallback.auto_fallback !== false;
+    document.getElementById('memory-fallback-on-error').checked = fallback.fallback_on_error !== false;
+    document.getElementById('memory-retry-attempts').value = fallback.retry_attempts || 3;
+}
+
+function updateMemoryStatus(status) {
+    const statusElement = document.getElementById('memory-status');
+    const statsElement = document.getElementById('memory-stats');
+    
+    if (status) {
+        statusElement.textContent = `${status.system_name} (${status.status})`;
+        statusElement.className = `memory-status ${status.status}`;
+        
+        if (status.stats && status.stats.active_objectives !== undefined) {
+            const stats = status.stats;
+            statsElement.textContent = `${stats.active_objectives || 0} objectives, ${stats.learned_strategies || 0} strategies`;
+        }
+    } else {
+        statusElement.textContent = 'Unknown';
+        statusElement.className = 'memory-status error';
+        statsElement.textContent = 'Status unavailable';
+    }
+}
+
+function saveMemoryConfig() {
+    const formData = new FormData();
+    
+    // Basic settings
+    formData.append('memory_enabled', document.getElementById('memory-enabled').checked);
+    formData.append('memory_system_type', document.getElementById('memory-system-type').value);
+    formData.append('memory_llm_provider', document.getElementById('memory-llm-provider').value);
+    
+    // API keys
+    formData.append('memory_google_api_key', document.getElementById('memory-google-api-key').value);
+    formData.append('memory_openai_api_key', document.getElementById('memory-openai-api-key').value);
+    formData.append('memory_anthropic_api_key', document.getElementById('memory-anthropic-api-key').value);
+    
+    // Neo4j configuration
+    formData.append('memory_neo4j_uri', document.getElementById('memory-neo4j-uri').value);
+    formData.append('memory_neo4j_username', document.getElementById('memory-neo4j-username').value);
+    formData.append('memory_neo4j_password', document.getElementById('memory-neo4j-password').value);
+    formData.append('memory_neo4j_database', document.getElementById('memory-neo4j-database').value);
+    
+    // Graphiti configuration
+    formData.append('memory_graphiti_llm_model', document.getElementById('memory-graphiti-llm-model').value);
+    formData.append('memory_graphiti_embedding_model', document.getElementById('memory-graphiti-embedding-model').value);
+    formData.append('memory_graphiti_reranker_model', document.getElementById('memory-graphiti-reranker-model').value);
+    
+    // Fallback configuration
+    formData.append('memory_auto_fallback', document.getElementById('memory-auto-fallback').checked);
+    formData.append('memory_fallback_on_error', document.getElementById('memory-fallback-on-error').checked);
+    formData.append('memory_retry_attempts', document.getElementById('memory-retry-attempts').value);
+    
+    fetch('/api/memory-config/save/', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            addSystemMessage('✅ ' + data.message);
+            loadMemoryConfig(); // Reload config to update status
+        } else {
+            addSystemMessage('❌ Error saving memory config: ' + data.message);
+        }
+    })
+    .catch(error => addSystemMessage('❌ Error saving memory config: ' + error.message));
+}
+
+function testMemoryConnections() {
+    addSystemMessage('🔧 Testing memory system connections...');
+    
+    fetch('/api/memory-config/test/', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const results = data.results;
+            let message = '🔧 Connection Test Results:\n';
+            
+            // Neo4j test
+            const neo4jStatus = results.neo4j;
+            message += `• Neo4j Database: ${getStatusIcon(neo4jStatus.status)} ${neo4jStatus.message}\n`;
+            
+            // API key test
+            const apiKeyStatus = results.api_key;
+            message += `• LLM API Key: ${getStatusIcon(apiKeyStatus.status)} ${apiKeyStatus.message}\n`;
+            
+            // Graphiti test
+            const graphitiStatus = results.graphiti;
+            message += `• Graphiti Package: ${getStatusIcon(graphitiStatus.status)} ${graphitiStatus.message}\n`;
+            
+            message += `\nSummary: ${data.summary}`;
+            addSystemMessage(message);
+        } else {
+            addSystemMessage('❌ Error testing connections: ' + data.message);
+        }
+    })
+    .catch(error => addSystemMessage('❌ Error testing connections: ' + error.message));
+}
+
+function getStatusIcon(status) {
+    switch(status) {
+        case 'success': return '✅';
+        case 'warning': return '⚠️';
+        case 'error': return '❌';
+        default: return '❓';
+    }
+}
+
+function resetMemorySystem() {
+    addSystemMessage('🔄 Resetting memory system...');
+    
+    fetch('/api/memory-config/reset/', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            addSystemMessage('✅ ' + data.message);
+            loadMemoryConfig(); // Reload config to update status
+            pollForMemoryUpdates(); // Refresh memory display
+        } else {
+            addSystemMessage('❌ Error resetting memory system: ' + data.message);
+        }
+    })
+    .catch(error => addSystemMessage('❌ Error resetting memory system: ' + error.message));
+}
+
+// Load memory configuration when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Add a delay to let other initialization complete first
+    setTimeout(loadMemoryConfig, 1000);
+});
 
 
 // ===== NARRATION SYSTEM FUNCTIONS =====
