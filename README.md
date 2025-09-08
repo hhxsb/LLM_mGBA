@@ -26,15 +26,24 @@ python manage.py runserver
 - **Action Tracking**: Watch button commands being sent to the game
 - **System Status**: Live connection and service health monitoring
 
+### 🧠 **Enterprise-Grade Memory System** (NEW)
+- **Temporal Knowledge Graph**: Bi-temporal tracking with Graphiti-powered AI memory
+- **Pokemon Intelligence**: Learns encounter patterns, locations, and battle strategies
+- **Strategy Evolution**: Tracks success rates of button sequences over time
+- **Semantic Search**: Context-aware strategy retrieval and pattern recognition
+- **Multi-Session Learning**: Knowledge persists across gameplay sessions
+- **Google Gemini Integration**: Native support with optimal performance
+
 ### 🎯 **Universal Game Support**
 - **Game Agnostic**: Works with any GBA game, not just Pokémon
 - **Visual Understanding**: AI analyzes screenshots to make decisions
 - **Flexible Controls**: Supports all GBA controller inputs
 - **Easy ROM Management**: Simple file-based ROM configuration
 
-### ⚙️ **Simple Configuration**
+### ⚙️ **Advanced Configuration**
 - **Web-based Setup**: Configure everything through the browser interface
-- **Multiple LLM Providers**: Google Gemini, OpenAI, or Anthropic
+- **Multiple LLM Providers**: Google Gemini (recommended), OpenAI, or Anthropic
+- **Memory System Config**: Full Neo4j and Graphiti configuration via web UI
 - **Database Storage**: Settings saved automatically in SQLite
 - **Auto mGBA Launch**: One-click emulator startup
 
@@ -63,12 +72,20 @@ mGBA → Lua Script → Socket (Port 8888) → AIGameService → LLM API → But
 ### Requirements
 - Python 3.11+
 - mGBA emulator
-- LLM API key (Google Gemini, OpenAI, or Anthropic)
+- LLM API key (Google Gemini recommended, OpenAI, or Anthropic)
+- Neo4j database (optional, for advanced memory system)
 
-### Setup
+### Enhanced Setup
 ```bash
-# Install dependencies
+# Install core dependencies
 pip install -r requirements.txt
+
+# Install enhanced memory system (recommended)
+pip install "graphiti-core[google-genai]" --upgrade
+pip install neo4j>=5.0.0
+
+# Verify Graphiti installation
+python -c "from graphiti_core.llm_client.gemini_client import GeminiClient; print('✅ Enhanced memory ready')"
 
 # Run database migrations
 cd ai_gba_player

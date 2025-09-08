@@ -57,17 +57,23 @@ python manage.py runserver
 # Test AI service communication
 python dev-tools/test-scripts/test_ai_service.py
 
-# Test Django app
+# Test Django app with comprehensive unit tests
 cd ai_gba_player
 python manage.py test
+
+# Test enhanced memory system
+python manage.py test dashboard.tests.test_graphiti_memory
+python manage.py test dashboard.tests.test_memory_service
 
 # Test game detection and Sapphire support
 python dev-tools/test-scripts/test_game_detection.py
 python dev-tools/test-scripts/test_final_sapphire_flow.py
 
-# Test mGBA connection (while Django server is running)
+# Test memory system APIs (while Django server is running)
 curl -X POST http://localhost:8000/api/restart-service/
 curl http://localhost:8000/api/chat-messages/
+curl -X POST http://localhost:8000/api/memory-config/test/
+curl -X POST http://localhost:8000/api/memory-config/reset/
 
 # Memory debugging tools (load in mGBA Script Viewer)
 # Load these files in mGBA Tools > Script Viewer:
@@ -96,9 +102,13 @@ ai_gba_player/                     # Django web application (MAIN)
 │   │   ├── css/dashboard.css      # Main dashboard styling
 │   │   └── js/dashboard.js        # Frontend JavaScript (chat polling)
 │   └── migrations/                # Database schema migrations
-├── core/                          # Memory system integration ONLY
-│   ├── graphiti_memory.py         # Graphiti-based autonomous learning system
-│   └── memory_service.py          # Memory service abstraction layer
+├── core/                          # Enhanced Memory System (UPDATED)
+│   ├── graphiti_memory.py         # Enterprise-grade temporal knowledge graph with:
+│   │                              #   - Temporal reasoning & bi-temporal tracking
+│   │                              #   - Pokemon/Battle/Location entity relationships
+│   │                              #   - Semantic search & hybrid retrieval
+│   │                              #   - Multi-provider LLM support (Gemini/OpenAI)
+│   └── memory_service.py          # Global memory service with intelligent fallback
 ├── db.sqlite3                     # SQLite database (configuration + process state)
 ├── media/uploads/roms/            # ROM file uploads directory
 └── staticfiles/                   # Collected static files (Django admin + custom)
@@ -173,27 +183,76 @@ All settings stored in SQLite database via Django models:
 - API keys: Entered securely via web interface
 - All settings persist in SQLite database
 
-## Graphiti Memory System (NEW FEATURE)
+## Graphiti Memory System (ENHANCED)
 
-### Autonomous Learning & Memory
-The AI GBA Player now includes an advanced **Graphiti-powered memory system** that enables:
+### Enterprise-Grade AI Memory
+The AI GBA Player features an advanced **Graphiti-powered temporal knowledge graph** that provides:
 
-**🎯 Autonomous Objective Discovery**: AI analyzes its own responses to discover new goals
-- "I need to find the Pokemon Center" → Creates "find Pokemon Center" objective
-- Auto-categorizes as main/side/exploration with priority scoring
-- Tracks discovery location and completion status
+### 🕐 **Temporal Reasoning** (NEW)
+- **Bi-temporal Tracking**: Records when events occurred vs. when they were discovered
+- **Progression Analysis**: Tracks Pokemon level changes, location visit patterns over time
+- **Strategy Evolution**: Monitors how strategy success rates change across gameplay sessions
+- **Recency Scoring**: Recent events weighted higher in decision-making
+- **Age-aware Context**: "Found Pikachu 2 hours ago at Route 1" vs "Caught Charizard yesterday"
 
-**🧠 Strategy Learning**: Remembers what button patterns work in different situations
-- Records successful button sequences for specific contexts
-- Tracks success rates and usage frequency
-- Provides learned strategies in future similar situations
+### 🔗 **Rich Entity Relationships** (NEW)
+- **Pokemon ↔ Location Mapping**: "Pikachu commonly found at Route 1 (85% encounter rate)"
+- **Battle ↔ Strategy Connections**: Links successful battle outcomes to specific button sequences
+- **Player ↔ Pokemon Ownership**: Tracks caught Pokemon with capture time and location
+- **Location ↔ Item Discovery**: Maps items and NPCs to specific locations
+- **Temporal Relationships**: Relationships have validity periods and strength scores
 
-**🏆 Achievement Tracking**: Automatically detects and records completed objectives
-- "I caught a Pikachu!" → Completes "catch electric Pokemon" objective
-- Maintains achievement history with completion times and locations
-- Creates prerequisite chains between related objectives
+### 🧠 **Semantic Memory Search** (NEW)  
+- **Hybrid Search**: Combines semantic embeddings, keyword matching, and graph traversal
+- **Contextual Strategy Retrieval**: "Find strategies similar to current battle situation"
+- **Location Intelligence**: "What Pokemon are found here? What strategies work?"
+- **Pattern Recognition**: Identifies successful gameplay patterns across different contexts
+- **Smart Suggestions**: Context-aware discovery recommendations
 
-**📊 Memory-Enhanced Prompts**: LLM receives contextual memory in every decision
+### 🎮 **Game-Specific Knowledge** (NEW)
+- **Pokemon Encounters**: `record_pokemon_encounter()` with species, level, location, catch status
+- **Battle Outcomes**: `record_battle_outcome()` with opponent type, strategy used, win/loss
+- **Location Insights**: Tracks Pokemon frequency, successful strategies per location
+- **Team Composition**: Monitors party changes and battle performance
+
+### 🎯 **Enhanced Objective Discovery**
+- **Context-Rich Discovery**: Includes session ID, player level, game time
+- **Multi-Category Objectives**: Main story, side quests, exploration, collection
+- **Priority-Based Ranking**: Critical (9), High (7), Normal (5) priority levels
+- **Temporal Context**: "Discovered 30 minutes ago" vs "Long-term goal"
+
+### 📊 **Advanced Memory Context**
+LLM receives comprehensive context in every decision:
+```yaml
+current_objectives:
+  - description: "Find Pokemon Center to heal team"
+    priority: 6
+    time_since_discovery: "30 minutes ago"
+    
+relevant_strategies:
+  - situation: "navigating to Pokemon Center"
+    buttons: ["UP", "UP", "A"]
+    success_rate: "92.3%"
+    source: "semantic_search"
+    
+location_insights:
+  pokemon_found: ["Rattata", "Pidgey", "Caterpie"]
+  success_strategies:
+    - situation: "catching wild Pokemon"
+      success_rate: 0.85
+      
+pokemon_knowledge:
+  recently_encountered:
+    - pokemon: "Pikachu"
+      location: "Route 1" 
+      time_ago: "2 hours ago"
+      
+temporal_patterns:
+  success_patterns:
+    - strategy: "A spam for dialogue"
+      usage_frequency: 15
+      last_successful: "just now"
+```
 ```
 ## 🎯 Current Objectives:
   🔥 Defeat Team Rocket leader (Priority: 9)
@@ -206,24 +265,56 @@ The AI GBA Player now includes an advanced **Graphiti-powered memory system** th
 
 ### Installation & Configuration
 ```bash
-# Full Graphiti support (recommended)
-pip install graphiti-ai>=0.3.0 neo4j>=5.0.0
+# Enhanced Graphiti with Google Gemini support (v0.20.2+)
+pip install "graphiti-core[google-genai]" --upgrade
+pip install neo4j>=5.0.0
 
-# Auto-fallback if unavailable
-# System uses SimpleMemorySystem automatically
+# Verify installation
+python -c "from graphiti_core.llm_client.gemini_client import GeminiClient; print('✅ Graphiti + Gemini ready')"
+
+# Auto-fallback to SimpleMemorySystem if dependencies unavailable
 ```
 
+### Multi-Provider Configuration
+The memory system supports multiple LLM providers:
+
+**Google Gemini (Recommended)**:
+- Full native support via `graphiti-core[google-genai]`
+- Models: `gemini-2.0-flash`, `embedding-001`, `gemini-2.5-flash-lite-preview-06-17`
+- Best performance and cost efficiency
+
+**OpenAI**: 
+- Standard support via environment variable
+- Models: GPT-4o, text-embedding-3-small
+- Requires `OPENAI_API_KEY`
+
+**Configuration via Web Interface**:
+1. Navigate to http://localhost:8000
+2. Expand "🧠 Memory System Configuration"
+3. Choose system type: Auto-detect (recommended), Graphiti, or Simple
+4. Configure LLM provider: Inherit from AI Settings or use separate API keys
+5. Set Neo4j database connection (bolt://localhost:7687)
+6. Test connections and reset memory system
+
 ### Architecture Integration
-- **Memory Discovery**: `ai_gba_player/dashboard/ai_game_service.py` analyzes AI responses
-- **Context Enhancement**: `ai_gba_player/dashboard/llm_client.py` injects memory into prompts  
-- **Knowledge Storage**: `ai_gba_player/core/graphiti_memory.py` manages Graphiti/Neo4j
-- **Template Integration**: `data/prompt_template.txt` includes `{memory_context}` variable
+- **Enhanced Discovery**: `ai_gba_player/dashboard/ai_game_service.py` calls `record_pokemon_encounter()`, `record_battle_outcome()`
+- **Semantic Context**: `ai_gba_player/core/graphiti_memory.py` provides `get_memory_context()` with temporal analysis
+- **Multi-dimensional Memory**: Pokemon knowledge, location insights, temporal patterns, strategy evolution
+- **Web Configuration**: Full memory system management via browser interface
+
+### Performance Characteristics
+- **P95 Latency**: ~300ms for memory retrieval (following Graphiti benchmarks)
+- **Hybrid Search**: Semantic + keyword + graph traversal for comprehensive results
+- **Temporal Optimization**: Recent events weighted higher, recency scoring
+- **Real-time Updates**: Incremental knowledge graph updates without batch recomputation
+- **Graceful Fallback**: Auto-switches to SimpleMemorySystem if Graphiti fails
 
 ### Benefits
-- **Self-improving AI**: Gets better at games over time through learning
-- **Goal persistence**: Important objectives don't get forgotten
-- **Strategy reuse**: Successful patterns are remembered and applied
-- **Context awareness**: AI knows what it should be doing at any moment
+- **Enterprise-Grade Memory**: Temporal knowledge graphs rival the latest AI agent architectures
+- **Self-Improving Gameplay**: AI becomes more skilled through experience and pattern recognition
+- **Multi-Session Learning**: Knowledge persists across gameplay sessions
+- **Location Intelligence**: Learns optimal strategies for specific game areas
+- **Pokemon Expertise**: Builds comprehensive knowledge of species, locations, battle strategies
 
 ## Prompt Optimization System
 
@@ -240,7 +331,20 @@ The system uses a **highly optimized prompt template** for efficient LLM communi
 {spatial_context}     - Dynamic location and navigation info
 {recent_actions}      - Player's recent button presses  
 {direction_guidance}  - Movement suggestions and context
-{notepad_content}     - Long-term memory and game progress
+{memory_context}      - Enhanced Graphiti memory context (NEW)
+{notepad_content}     - Simple fallback memory and game progress
+```
+
+### Enhanced Memory Context Variables (NEW)
+```yaml
+{memory_context} includes:
+  current_objectives:    # Active goals with priorities and temporal context
+  recent_achievements:   # Completed objectives with timestamps
+  relevant_strategies:   # Context-aware strategy recommendations
+  location_insights:     # Pokemon frequency and successful strategies for current area
+  pokemon_knowledge:     # Recent encounters and battle patterns
+  temporal_patterns:     # Success patterns and usage frequency analysis
+  discovery_suggestions: # Context-aware recommendations for next actions
 ```
 
 ### Hot-Reload Support
